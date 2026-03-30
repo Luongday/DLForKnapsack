@@ -1,0 +1,21 @@
+{
+  "n_common_instances": 200,
+  "dp": {
+    "count": 200,
+    "feasible": 200,
+    "feasible_rate": 1.0,
+    "avg_value": 15601.11,
+    "avg_time_ms": 76.080159,
+    "avg_gap_vs_dp": null,
+    "avg_ratio_vs_dp": null
+  },
+  "gnn": {
+    "count": 200,
+    "feasible": 200,
+    "feasible_rate": 1.0,
+    "avg_value": 14947.43,
+    "avg_time_ms": 2.036588,
+    "avg_gap_vs_dp": -0.31373,
+    "avg_ratio_vs_dp": 1.31373
+  }
+}
