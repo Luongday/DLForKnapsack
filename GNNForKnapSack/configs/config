@@ -1,0 +1,4 @@
+TYPE = gnn
+HIDDEN = 128
+N =
+RANGE = 1000

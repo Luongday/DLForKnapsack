@@ -44,9 +44,9 @@ try:
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from knapsack_gnn.dp import solve_knapsack_dp
-    from knapsack_gnn.graph_builder import build_knapsack_graph
-    from knapsack_gnn.io_excel import load_excel_knapsack_instances
+    from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
+    from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Graph_builder import build_knapsack_graph
+    from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.io_excel import load_excel_knapsack_instances
 
 
 # ---------------------------------------------------------------------------

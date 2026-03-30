@@ -53,7 +53,8 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdarg.h>
-#include <values.h>
+#include <limits.h>
+#include <float.h>
 #include <string.h>
 #include <math.h>
 
@@ -63,7 +64,7 @@
    ====================================================================== */
 
 #define srand(x)     srand48x(x)
-#define randm(x)    (lrand48x() % (long) (x))
+#define random(x)    (land48x() % (long) (x))
 
 typedef int boolean;
 #define TRUE 1
@@ -88,7 +89,7 @@ void srand48x(int  s)
   _l48 = 0x330E;
 }
 
-int  lrand48x(void)
+int  land48x(void)
 {
   _h48 = (_h48 * 0xDEECE66D) + (_l48 * 0x5DEEC);
   _l48 = _l48 * 0xE66D + 0xB;
@@ -108,7 +109,7 @@ int isprime(int i)
 }
 
 
-int primelarger(int i)
+int primeLarger(int i)
 {
   for (;; i++) if (isprime(i)) return i;
 }
@@ -135,20 +136,20 @@ long long generator(int n, int *pp, int *ww, int type, int r, int v, int tests)
   if (type == 12) span = 2;
   if (type == 13) span = 2;
   for (i = 0; i < span; i++) {
-    sw[i] = randm(r) + 1;
-    if (type == 11) sp[i] = randm(r) + 1;                /* uncorr */
-    if (type == 12) sp[i] = randm(2*r1+1)+sw[i]-r1;      /* wekcorr */
+    sw[i] = random(r) + 1;
+    if (type == 11) sp[i] = random(r) + 1;                /* uncorr */
+    if (type == 12) sp[i] = random(2*r1+1)+sw[i]-r1;      /* wekcorr */
     if (type == 13) sp[i] = sw[i] + r1;                  /* strcorr */
     if (sp[i] <= 0) sp[i] = 1;
     sw[i] = (sw[i] + SPAN2 - 1) / SPAN2;
     sp[i] = (sp[i] + SPAN2 - 1) / SPAN2;
   }
   for (i = 0; i < n; ) {
-    w = randm(r) + 1;
+    w = random(r) + 1;
     switch (type) {
-      case  1: p = randm(r) + 1; /* uncorrelated */
+      case  1: p = random(r) + 1; /* uncorrelated */
                break;
-      case  2: p = randm(2*r1+1) + w - r1; /* weakly corr */
+      case  2: p = random(2*r1+1) + w - r1; /* weakly corr */
                if (p <= 0) p = 1;
                break;
       case  3: p = w + r1;   /* strongly corr */
@@ -156,7 +157,7 @@ long long generator(int n, int *pp, int *ww, int type, int r, int v, int tests)
       case  4: p = w; /* inverse strongly corr */
                w = p + r1;
                break;
-      case  5: p = w + r1 + randm(2*r/1000+1) - r/1000; /* alm str.corr */
+      case  5: p = w + r1 + random(2*r/1000+1) - r/1000; /* alm str.corr */
                break;
       case  6: p = w; /* subset sum */
                break;
@@ -167,24 +168,24 @@ long long generator(int n, int *pp, int *ww, int type, int r, int v, int tests)
                p = w + r1;
                break;
       case  9: p = w; /* uncorrelated, similar weights */
-               w = randm(r1) + 100*r;
+               w = random(r1) + 100*r;
                break;
 
       case 11:
       case 12:
       case 13:
-               k1 = randm(10)+1;
-               k2 = randm(span);
+               k1 = random(10)+1;
+               k2 = random(span);
                w = k1 * sw[k2];
                p = k1 * sp[k2];
                break;
-      case 14: w = randm(r)+1; p = w; /* slightly difficult */
+      case 14: w = random(r)+1; p = w; /* slightly difficult */
                if (w % 6 == 0) { p += 3*r1; break; }
                p += 2*r1;
                break;
-      case 15: w = randm(r)+1; p = 3*((w+2)/3);    /* even-odd like profits */
+      case 15: w = random(r)+1; p = 3*((w+2)/3);    /* even-odd like profits */
                break;
-      case 16: w = randm(r)+1; p = 2*sqrt(4*r*r - (w-2*r)*(w-2*r))/3;
+      case 16: w = random(r)+1; p = 2*sqrt(4*r*r - (w-2*r)*(w-2*r))/3;
                break;
 
       default: error("undefined problem type");

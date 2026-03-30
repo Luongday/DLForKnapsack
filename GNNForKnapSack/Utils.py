@@ -121,7 +121,6 @@ def beam_search_decoder(
     Args:
         data: [n_steps, n_classes] probability matrix.
         k:    Beam width.
-
     Returns:
         List of (sequence, score) tuples, best first.
         Score is cumulative negative log-likelihood (lower = better).

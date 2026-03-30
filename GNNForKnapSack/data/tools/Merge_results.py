@@ -34,7 +34,7 @@ def mark(msg: str) -> None:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 def _safe_float(row: Dict[str, Any], *keys: str) -> Optional[float]:
@@ -140,14 +140,15 @@ class _Stats:
 def merge(
     dp_rows:  Optional[Dict[str, Dict[str, Any]]],
     gnn_rows: Optional[Dict[str, Dict[str, Any]]],
-    dqn_rows: Optional[Dict[str, Dict[str, Any]]],
-    dqn_meta_path: Optional[Path],
+    # dqn_rows: Optional[Dict[str, Dict[str, Any]]],
+    # dqn_meta_path: Optional[Path],
     out_dir:  Path,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Find common instance keys across all available solvers
-    available = [r for r in [dp_rows, gnn_rows, dqn_rows] if r is not None]
+    # available = [r for r in [dp_rows, gnn_rows, dqn_rows] if r is not None]
+    available = [r for r in [dp_rows, gnn_rows] if r is not None]
     if not available:
         raise RuntimeError("No result files loaded — nothing to merge.")
 
@@ -161,17 +162,18 @@ def merge(
     # Accumulators
     s_dp  = _Stats()
     s_gnn = _Stats()
-    s_dqn = _Stats()
+    # s_dqn = _Stats()
 
     records: List[Dict[str, Any]] = []
 
     for key in common_keys:
         dp  = dp_rows.get(key)  if dp_rows  else None
         gnn = gnn_rows.get(key) if gnn_rows else None
-        dqn = dqn_rows.get(key) if dqn_rows else None
+        # dqn = dqn_rows.get(key) if dqn_rows else None
 
         # Shared metadata (prefer DP as ground truth)
-        src = dp or gnn or dqn or {}
+        # src = dp or gnn or dqn or {}
+        src = dp or gnn or {}
         n_items  = _safe_int(src, "n_items")
         capacity = _safe_float(src, "capacity")
 
@@ -190,25 +192,25 @@ def merge(
         gnn_sel      = gnn.get("selected_items")                               if gnn else None
 
         # DQN
-        dqn_value    = _safe_float(dqn, "total_value_selected", "total_value", "value") if dqn else None
-        dqn_weight   = _safe_float(dqn, "total_weight_selected", "total_weight")         if dqn else None
-        dqn_feasible = _safe_int(dqn,   "feasible") if dqn else None
-        dqn_time_ms  = _safe_float(dqn, "inference_time_ms", "time_ms")                  if dqn else None
-        dqn_sel      = dqn.get("selected_items")                                          if dqn else None
+        # dqn_value    = _safe_float(dqn, "total_value_selected", "total_value", "value") if dqn else None
+        # dqn_weight   = _safe_float(dqn, "total_weight_selected", "total_weight")         if dqn else None
+        # dqn_feasible = _safe_int(dqn,   "feasible") if dqn else None
+        # dqn_time_ms  = _safe_float(dqn, "inference_time_ms", "time_ms")                  if dqn else None
+        # dqn_sel      = dqn.get("selected_items")                                          if dqn else None
 
         # Metrics vs DP optimal
         gap_gnn   = _gap(dp_value, gnn_value)
-        gap_dqn   = _gap(dp_value, dqn_value)
+        # gap_dqn   = _gap(dp_value, dqn_value)
         ratio_gnn = _ratio(dp_value, gnn_value)
-        ratio_dqn = _ratio(dp_value, dqn_value)
+        # ratio_dqn = _ratio(dp_value, dqn_value)
 
         # Update stats
         if dp is not None:
             s_dp.update(dp_feasible or 1, dp_time_ms, dp_value, None, None)
         if gnn is not None:
             s_gnn.update(gnn_feasible or 0, gnn_time_ms, gnn_value, gap_gnn, ratio_gnn)
-        if dqn is not None:
-            s_dqn.update(dqn_feasible or 0, dqn_time_ms, dqn_value, gap_dqn, ratio_dqn)
+        # if dqn is not None:
+        #     s_dqn.update(dqn_feasible or 0, dqn_time_ms, dqn_value, gap_dqn, ratio_dqn)
 
         records.append({
             "instance_file":    key,
@@ -226,17 +228,17 @@ def merge(
             "gnn_time_ms":      gnn_time_ms,
             "gap_gnn":          gap_gnn,
             "ratio_gnn":        ratio_gnn,
-            # DQN
-            "dqn_value":        dqn_value,
-            "dqn_weight":       dqn_weight,
-            "dqn_feasible":     dqn_feasible,
-            "dqn_time_ms":      dqn_time_ms,
-            "gap_dqn":          gap_dqn,
-            "ratio_dqn":        ratio_dqn,
+            # # DQN
+            # "dqn_value":        dqn_value,
+            # "dqn_weight":       dqn_weight,
+            # "dqn_feasible":     dqn_feasible,
+            # "dqn_time_ms":      dqn_time_ms,
+            # "gap_dqn":          gap_dqn,
+            # "ratio_dqn":        ratio_dqn,
             # Selected items
             "dp_selected_items":  dp_sel,
             "gnn_selected_items": gnn_sel,
-            "dqn_selected_items": dqn_sel,
+            # "dqn_selected_items": dqn_sel,
         })
 
     # Write merged CSV
@@ -253,22 +255,22 @@ def merge(
         "n_common_instances": len(common_keys),
         "dp":  s_dp.to_dict()  if dp_rows  else None,
         "gnn": s_gnn.to_dict() if gnn_rows else None,
-        "dqn": s_dqn.to_dict() if dqn_rows else None,
+        # "dqn": s_dqn.to_dict() if dqn_rows else None,
     }
 
     # Incorporate DQN training metadata (was augment_results_with_meta.py)
-    if dqn_meta_path and dqn_meta_path.exists():
-        with dqn_meta_path.open(encoding="utf-8") as f:
-            dqn_meta = json.load(f)
-        summary["dqn_training"] = {
-            "algorithm":               "DQN",
-            "training_steps":          dqn_meta.get("total_steps", 50000),
-            "original_planned_steps":  200000,
-            "note": "Training steps reduced due to hardware constraints",
-        }
-        mark(f"DQN training metadata injected from {dqn_meta_path.name}")
-    else:
-        mark("[INFO] DQN training meta not found — skipped (non-critical)")
+    # if dqn_meta_path and dqn_meta_path.exists():
+    #     with dqn_meta_path.open(encoding="utf-8") as f:
+    #         dqn_meta = json.load(f)
+    #     summary["dqn_training"] = {
+    #         "algorithm":               "DQN",
+    #         "training_steps":          dqn_meta.get("total_steps", 50000),
+    #         "original_planned_steps":  200000,
+    #         "note": "Training steps reduced due to hardware constraints",
+    #     }
+    #     mark(f"DQN training metadata injected from {dqn_meta_path.name}")
+    # else:
+    #     mark("[INFO] DQN training meta not found — skipped (non-critical)")
 
     summary_json = out_dir / "summary.json"
     with summary_json.open("w", encoding="utf-8") as f:
@@ -278,7 +280,9 @@ def merge(
     # Print quick comparison table
     print("\n  Solver   | feasible |  avg_value |  avg_time_ms | avg_ratio_vs_dp")
     print("  " + "-" * 62)
-    for label, s in [("DP", s_dp), ("GNN", s_gnn), ("DQN", s_dqn)]:
+
+    # for label, s in [("DP", s_dp), ("GNN", s_gnn), ("DQN", s_dqn)]:
+    for label, s in [("DP", s_dp), ("GNN", s_gnn)]:
         d = s.to_dict()
         feas  = f"{d['feasible_rate']:.3f}"   if d['feasible_rate']   is not None else "  n/a "
         val   = f"{d['avg_value']:.2f}"        if d['avg_value']       is not None else "    n/a"
@@ -295,26 +299,29 @@ def merge(
 def parse_args() -> argparse.Namespace:
     root = _repo_root()
     parser = argparse.ArgumentParser(
-        description="Merge DP / GNN / DQN results into a comparison table.",
+        description="Merge DP / GNN results into a comparison table.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
     parser.add_argument(
         "--dp_csv",  type=Path,
         default=root / "results" / "DP"  / "dp_results.csv",
     )
+
     parser.add_argument(
         "--gnn_csv", type=Path,
         default=root / "results" / "GNN" / "gnn_eval_results.csv",
     )
-    parser.add_argument(
-        "--dqn_csv", type=Path,
-        default=root / "results" / "DQN" / "eval_results.csv",
-    )
-    parser.add_argument(
-        "--dqn_meta", type=Path,
-        default=root / "results" / "DQN" / "train_meta.json",
-        help="DQN training metadata JSON (optional)",
-    )
+
+    # parser.add_argument(
+    #     "--dqn_csv", type=Path,
+    #     default=root / "results" / "DQN" / "eval_results.csv",
+    # )
+    # parser.add_argument(
+    #     "--dqn_meta", type=Path,
+    #     default=root / "results" / "DQN" / "train_meta.json",
+    #     help="DQN training metadata JSON (optional)",
+    # )
     parser.add_argument(
         "--out_dir", type=Path,
         default=root / "results" / "compare",
@@ -332,9 +339,10 @@ if __name__ == "__main__":
 
     dp_rows  = load_csv(args.dp_csv,  "DP")
     gnn_rows = load_csv(args.gnn_csv, "GNN")
-    dqn_rows = load_csv(args.dqn_csv, "DQN")
+    # dqn_rows = load_csv(args.dqn_csv, "DQN")
 
-    missing = [l for l, r in [("DP", dp_rows), ("GNN", gnn_rows), ("DQN", dqn_rows)] if r is None]
+    # missing = [l for l, r in [("DP", dp_rows), ("GNN", gnn_rows), ("DQN", dqn_rows)] if r is None]
+    missing = [l for l, r in [("DP", dp_rows), ("GNN", gnn_rows)] if r is None]
     if missing and not args.skip_missing:
         raise SystemExit(
             f"Missing result files: {missing}\n"
@@ -344,7 +352,7 @@ if __name__ == "__main__":
     merge(
         dp_rows=dp_rows,
         gnn_rows=gnn_rows,
-        dqn_rows=dqn_rows,
-        dqn_meta_path=args.dqn_meta,
+        # dqn_rows=dqn_rows,
+        # dqn_meta_path=args.dqn_meta,
         out_dir=args.out_dir,
     )

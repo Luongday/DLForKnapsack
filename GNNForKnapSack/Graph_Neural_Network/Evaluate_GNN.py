@@ -20,8 +20,8 @@ import numpy as np
 import torch
 from torch_geometric.data import Data
 
-from Knapsack_GNN.model import load_checkpoint
-from Knapsack_GNN.Graph_builder import build_knapsack_graph
+from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.model import load_checkpoint
+from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Graph_builder import build_knapsack_graph
 
 
 def mark(msg: str):
@@ -78,7 +78,7 @@ def load_instance(npz_path: Path) -> Tuple[np.ndarray, np.ndarray, int]:
 
 
 def _default_dataset_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "dataset" / "knapsack01_medium"
+    return Path(__file__).resolve().parents[2] / "GNNForKnapSack" / "data" / "knapsack_ilp" / "test"
 
 
 def _default_model_path() -> Path:
