@@ -1,10 +1,8 @@
 """0/1 Knapsack DP solver.
 
-Two implementations are provided:
-- solve_knapsack_dp: pure-Python fallback (correct, but slow for large capacity).
-- solve_knapsack_dp_np: NumPy-accelerated version (significantly faster).
-
-The public API re-exports solve_knapsack_dp_np as the default.
+Two implementations:
+    solve_knapsack_dp_python — pure-Python reference (slow for large C)
+    solve_knapsack_dp_np     — NumPy-accelerated (10-50x faster)
 """
 
 from typing import List
@@ -12,17 +10,18 @@ from typing import List
 import numpy as np
 
 
-def solve_knapsack_dp(weights: List[int], values: List[int], capacity: int) -> List[int]:
-    """Classic 0/1 knapsack DP (pure Python).
+def solve_knapsack_dp_python(
+    weights: List[int], values: List[int], capacity: int
+) -> List[int]:
+    """Classic 0/1 knapsack DP — pure Python reference implementation.
 
-    Kept as a reference implementation and fallback.
-    Time: O(n * W), Space: O(n * W) — slow for large W.
+    Time: O(n * W), Space: O(n * W).
 
     Returns:
-        A 0/1 list indicating whether each item is selected in an optimal solution.
+        0/1 list indicating whether each item is selected.
     """
     n = len(weights)
-    dp = [[0] * (capacity + 1) for _ in range(n + 1)]
+    dp   = [[0] * (capacity + 1) for _ in range(n + 1)]
     keep = [[0] * (capacity + 1) for _ in range(n + 1)]
 
     for i in range(1, n + 1):
@@ -45,30 +44,27 @@ def solve_knapsack_dp(weights: List[int], values: List[int], capacity: int) -> L
     return res
 
 
-def solve_knapsack_dp_np(weights: List[int], values: List[int], capacity: int) -> List[int]:
+def solve_knapsack_dp_np(
+    weights: List[int], values: List[int], capacity: int
+) -> List[int]:
     """NumPy-accelerated 0/1 knapsack DP.
 
-    Uses vectorised row updates to eliminate the inner Python loop over capacity.
-    Roughly 10-50× faster than the pure-Python version for capacity >= 500.
-
-    Time: O(n * W), Space: O(n * W) — same asymptotic complexity, much faster in practice.
+    Vectorized row updates — ~10-50x faster than pure Python for C >= 500.
+    Time: O(n * W), Space: O(n * W).
 
     Returns:
-        A 0/1 list indicating whether each item is selected in an optimal solution.
+        0/1 list indicating whether each item is selected.
     """
     n = len(weights)
     if n == 0:
         return []
 
     w_arr = np.asarray(weights, dtype=np.int32)
-    v_arr = np.asarray(values, dtype=np.int32)
+    v_arr = np.asarray(values,  dtype=np.int32)
 
-    # dp[i] = best value achievable using items 0..i-1 with capacity c
-    # We keep the full (n+1) x (C+1) table for backtracing.
-    dp = np.zeros((n + 1, capacity + 1), dtype=np.int32)
+    dp   = np.zeros((n + 1, capacity + 1), dtype=np.int32)
     keep = np.zeros((n + 1, capacity + 1), dtype=np.bool_)
-
-    caps = np.arange(capacity + 1, dtype=np.int32)  # [0..C]
+    caps = np.arange(capacity + 1, dtype=np.int32)
 
     for i in range(1, n + 1):
         w_i = int(w_arr[i - 1])
@@ -76,13 +72,12 @@ def solve_knapsack_dp_np(weights: List[int], values: List[int], capacity: int) -
 
         dp[i] = dp[i - 1].copy()
 
-        # Indices where item i fits
-        feasible = caps >= w_i  # boolean mask over capacity axis
+        feasible = caps >= w_i
         if feasible.any():
             prev_vals = dp[i - 1, caps[feasible] - w_i] + v_i
-            improved = prev_vals > dp[i, feasible]
-            idx = np.where(feasible)[0][improved]
-            dp[i, idx] = prev_vals[improved]
+            improved  = prev_vals > dp[i, feasible]
+            idx       = np.where(feasible)[0][improved]
+            dp[i, idx]   = prev_vals[improved]
             keep[i, idx] = True
 
     # Backtrack
@@ -95,6 +90,5 @@ def solve_knapsack_dp_np(weights: List[int], values: List[int], capacity: int) -
     return res
 
 
-# Default export — callers import solve_knapsack_dp and get the fast version.
-_original_solve = solve_knapsack_dp
-solve_knapsack_dp = solve_knapsack_dp_np  # type: ignore[assignment]
+# Public alias — fast version by default, no shadow naming
+solve_knapsack_dp = solve_knapsack_dp_np

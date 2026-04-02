@@ -59,12 +59,6 @@
 #include <math.h>
 
 
-void error(const char *msg) {
-  fprintf(stderr, "ERROR: %s\n", msg);
-  exit(1);
-}
-
-
 /* ======================================================================
 				   macros
    ====================================================================== */
@@ -254,7 +248,7 @@ void showitems(int n, int *pp, int *ww, long long c)
                                 main
    ====================================================================== */
 
-int main(int argc, char *argv[])
+void main(int argc, char *argv[])
 {
   int *pp, *ww;
   int n, r, type, i, S;

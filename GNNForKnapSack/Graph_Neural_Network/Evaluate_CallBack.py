@@ -1,28 +1,10 @@
 """Post-epoch evaluation callback for KnapsackGNN training.
 
-Ported from EvaluateCallBack.py (original Keras-based Neuro-Knapsack).
-
-Key changes vs original:
-    - Rewritten for PyTorch — no Keras dependency.
-    - Removed CSVDataFrame (custom dependency) → standard csv module.
-    - Early stopping tracked by approx_ratio (GNN value / DP value),
-      same logic as original but cleaned up.
-    - Model saved via save_checkpoint() from model.py (consistent format).
-    - Greedy baseline evaluated alongside GNN every epoch for comparison.
-    - Compatible with run_train.py training loop.
-
-Usage in run_train.py:
-    from evaluate_callback import EvaluateCallback
-    callback = EvaluateCallback(
-        model, test_loader, device,
-        save_path="results/GNN/gnn.pt",
-        max_wait=5,
-    )
-    for epoch in range(epochs):
-        train_one_epoch(...)
-        stop = callback.on_epoch_end(epoch)
-        if stop:
-            break
+Improvements vs original:
+    - Uses centralized decode_utils (no duplicate greedy decode)
+    - Per-instance ratio computation (correct) before averaging
+    - Tracks best_epoch for summary
+    - Compares with Greedy baseline each epoch
 """
 
 from __future__ import annotations
@@ -36,47 +18,40 @@ import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
 
-from Knapsack_GNN.model import KnapsackGNN, save_checkpoint
-from GNNForKnapSack.solvers.Greedy.Greedy import greedy_knapsack
-
-
-def _greedy_feasible_decode(
-    probs: torch.Tensor,
-    weights: torch.Tensor,
-    capacity: float,
-) -> torch.Tensor:
-    """Pick items by descending GNN probability while respecting capacity."""
-    idx   = torch.argsort(probs, descending=True)
-    x_hat = torch.zeros_like(probs)
-    total = 0.0
-    for i in idx:
-        w_i = weights[i].item()
-        if total + w_i <= capacity + 1e-6:
-            x_hat[i] = 1.0
-            total    += w_i
-    return x_hat
+try:
+    from model import KnapsackGNN, save_checkpoint
+    from decode_utils import greedy_feasible_decode, greedy_ratio_decode
+except ImportError:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.model import KnapsackGNN, save_checkpoint
+    from GNNForKnapSack.decode_utils import greedy_feasible_decode, greedy_ratio_decode
 
 
 class EvaluateCallback:
-    """Evaluate GNN and Greedy baselines after each training epoch.
+    """Evaluate GNN and Greedy baseline after each training epoch.
 
     Tracks approximation ratio (GNN value / DP optimal value).
-    Saves model when ratio improves. Stops training when no improvement
-    for max_wait epochs.
+    Saves model when ratio improves. Early stops if no improvement.
+
+    Prerequisite: batch.y must be binary DP-optimal vector (0/1 per node).
 
     Args:
-        model:      KnapsackGNN instance being trained.
-        loader:     DataLoader for the validation/test split.
+        model:      KnapsackGNN being trained.
+        loader:     DataLoader for validation split.
         device:     torch.device.
         save_path:  Path to save best model checkpoint.
-        max_wait:   Epochs without improvement before early stopping.
-        log_path:   Optional CSV path for per-epoch metrics.
+        max_wait:   Epochs without improvement before early stop.
+        log_path:   CSV path for per-epoch metrics (None = no log).
     """
 
     HEADER = [
-        "epoch", "gnn_approx_ratio", "greedy_approx_ratio",
+        "epoch",
+        "gnn_approx_ratio_mean", "gnn_approx_ratio_std",
+        "greedy_approx_ratio_mean",
         "gnn_feasibility", "greedy_feasibility",
-        "avg_gnn_value", "avg_dp_value", "epoch_time_sec",
+        "avg_gnn_value", "avg_dp_value",
+        "epoch_time_sec",
     ]
 
     def __init__(
@@ -95,7 +70,8 @@ class EvaluateCallback:
         self.max_wait  = max_wait
         self.log_path  = Path(log_path) if log_path else None
 
-        self._best_ratio: float = 0.0   # higher is better (GNN/DP ratio)
+        self._best_ratio: float = 0.0
+        self._best_epoch: int   = 0
         self._wait:       int   = 0
         self._rows:       List[dict] = []
 
@@ -103,25 +79,18 @@ class EvaluateCallback:
         if self.log_path:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------------
-
     @torch.no_grad()
     def on_epoch_end(self, epoch: int) -> bool:
-        """Run evaluation. Returns True if training should stop.
-
-        Args:
-            epoch: Current epoch number (0-based).
-
-        Returns:
-            True  → stop training (early stopping triggered).
-            False → continue.
-        """
+        """Run evaluation. Returns True if training should stop (early stopping)."""
         t0 = time.perf_counter()
         self.model.eval()
 
-        gnn_values, dp_values         = [], []
-        gnn_weights, capacities       = [], []
-        greedy_values, greedy_weights = [], []
+        gnn_ratios:      List[float] = []
+        greedy_ratios:   List[float] = []
+        gnn_feas_list:   List[bool]  = []
+        greedy_feas_list:List[bool]  = []
+        gnn_values:      List[float] = []
+        dp_values:       List[float] = []
 
         for batch in self.loader:
             batch    = batch.to(self.device)
@@ -133,96 +102,103 @@ class EvaluateCallback:
             probs  = torch.sigmoid(logits)
 
             for g in range(n_graphs):
-                mask   = batch_v == g
-                p_g    = probs[mask].detach().cpu()
-                w_g    = batch.wts[mask].detach().cpu()
-                v_g    = batch.vals[mask].detach().cpu()
-                cap_g  = float(batch.cap[g].item() if batch.cap.dim() > 0 else batch.cap.item())
-                dp_val = float((batch.y[mask].view(-1).detach().cpu() * v_g).sum())
+                mask  = batch_v == g
+                p_g   = probs[mask].detach().cpu()
+                w_g   = batch.wts[mask].detach().cpu()
+                v_g   = batch.vals[mask].detach().cpu()
+                cap_g = float(batch.cap[g].item() if batch.cap.dim() > 0
+                              else batch.cap.item())
 
-                # GNN decode
-                gnn_sel = _greedy_feasible_decode(p_g, w_g, cap_g)
+                dp_sol = batch.y[mask].view(-1).detach().cpu()
+                dp_val = float((dp_sol * v_g).sum())
+
+                # GNN decode (centralized)
+                gnn_sel = greedy_feasible_decode(p_g, w_g, cap_g)
                 gnn_val = float((gnn_sel * v_g).sum())
                 gnn_w   = float((gnn_sel * w_g).sum())
 
-                # Greedy decode
-                gr_sel = torch.tensor(
-                    greedy_knapsack(v_g.numpy(), w_g.numpy(), cap_g),
-                    dtype=torch.float32,
-                )
-                gr_val = float((gr_sel * v_g).sum())
-                gr_w   = float((gr_sel * w_g).sum())
+                # Greedy baseline decode (centralized)
+                gr_sel  = greedy_ratio_decode(v_g, w_g, cap_g)
+                gr_val  = float((gr_sel * v_g).sum())
+                gr_w    = float((gr_sel * w_g).sum())
 
+                # Per-instance ratio
+                gnn_ratio    = gnn_val / dp_val if dp_val > 0 else 0.0
+                greedy_ratio = gr_val  / dp_val if dp_val > 0 else 0.0
+
+                gnn_ratios.append(gnn_ratio)
+                greedy_ratios.append(greedy_ratio)
+                gnn_feas_list.append(gnn_w <= cap_g + 1e-6)
+                greedy_feas_list.append(gr_w <= cap_g + 1e-6)
                 gnn_values.append(gnn_val)
                 dp_values.append(dp_val)
-                gnn_weights.append(gnn_w)
-                capacities.append(cap_g)
-                greedy_values.append(gr_val)
-                greedy_weights.append(gr_w)
 
         # Aggregate
-        avg_gnn  = np.mean(gnn_values)
-        avg_dp   = np.mean(dp_values)
-        avg_gr   = np.mean(greedy_values)
-
-        gnn_ratio    = avg_gnn / avg_dp if avg_dp > 0 else 0.0
-        greedy_ratio = avg_gr  / avg_dp if avg_dp > 0 else 0.0
-
-        gnn_feas    = np.mean([w <= c + 1e-6 for w, c in zip(gnn_weights, capacities)])
-        greedy_feas = np.mean([w <= c + 1e-6 for w, c in zip(greedy_weights, capacities)])
+        gnn_ratio_mean    = float(np.mean(gnn_ratios))    if gnn_ratios    else 0.0
+        gnn_ratio_std     = float(np.std(gnn_ratios))     if gnn_ratios    else 0.0
+        greedy_ratio_mean = float(np.mean(greedy_ratios)) if greedy_ratios else 0.0
+        gnn_feas          = float(np.mean(gnn_feas_list))
+        greedy_feas       = float(np.mean(greedy_feas_list))
+        avg_gnn           = float(np.mean(gnn_values))
+        avg_dp            = float(np.mean(dp_values))
 
         elapsed = time.perf_counter() - t0
 
         print(
             f"  Eval epoch {epoch+1:03d} | "
-            f"GNN ratio={gnn_ratio:.4f} | Greedy ratio={greedy_ratio:.4f} | "
-            f"GNN feas={gnn_feas:.3f} | Greedy feas={greedy_feas:.3f} | "
+            f"GNN ratio={gnn_ratio_mean:.4f}±{gnn_ratio_std:.3f} | "
+            f"Greedy ratio={greedy_ratio_mean:.4f} | "
+            f"GNN feas={gnn_feas:.3f} | "
             f"time={elapsed:.2f}s"
         )
 
-        # --- Save best model ---
-        if gnn_ratio > self._best_ratio:
-            self._best_ratio = gnn_ratio
+        if gnn_ratio_mean > self._best_ratio:
+            self._best_ratio = gnn_ratio_mean
+            self._best_epoch = epoch + 1
             self._wait       = 0
             save_checkpoint(self.model, self.save_path)
-            print(f"  [callback] Best ratio improved → {gnn_ratio:.4f}. Saved to {self.save_path}")
+            print(f"  [callback] Best ratio → {gnn_ratio_mean:.4f} "
+                  f"(epoch {epoch+1}). Saved to {self.save_path}")
         else:
             self._wait += 1
-            print(f"  [callback] No improvement ({self._wait}/{self.max_wait})")
+            print(f"  [callback] No improvement "
+                  f"({self._wait}/{self.max_wait}, best={self._best_ratio:.4f} "
+                  f"@ epoch {self._best_epoch})")
 
-        # --- Log to CSV ---
         row = {
-            "epoch":               epoch + 1,
-            "gnn_approx_ratio":    round(gnn_ratio,    4),
-            "greedy_approx_ratio": round(greedy_ratio, 4),
-            "gnn_feasibility":     round(float(gnn_feas),    3),
-            "greedy_feasibility":  round(float(greedy_feas), 3),
-            "avg_gnn_value":       round(float(avg_gnn), 2),
-            "avg_dp_value":        round(float(avg_dp),  2),
-            "epoch_time_sec":      round(elapsed, 2),
+            "epoch":                    epoch + 1,
+            "gnn_approx_ratio_mean":    round(gnn_ratio_mean,    4),
+            "gnn_approx_ratio_std":     round(gnn_ratio_std,     4),
+            "greedy_approx_ratio_mean": round(greedy_ratio_mean, 4),
+            "gnn_feasibility":          round(gnn_feas,          3),
+            "greedy_feasibility":       round(greedy_feas,       3),
+            "avg_gnn_value":            round(avg_gnn,           2),
+            "avg_dp_value":             round(avg_dp,            2),
+            "epoch_time_sec":           round(elapsed,           2),
         }
         self._rows.append(row)
         if self.log_path:
             self._flush_csv()
 
-        # --- Early stopping ---
         if self._wait >= self.max_wait:
-            print(f"  [callback] Early stopping after {self.max_wait} epochs without improvement.")
+            print(
+                f"  [callback] Early stopping. "
+                f"Best: ratio={self._best_ratio:.4f} @ epoch {self._best_epoch}."
+            )
             return True
 
         return False
 
     def _flush_csv(self) -> None:
-        """Write all rows to CSV (overwrite each time for safety)."""
         with self.log_path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self.HEADER)
             writer.writeheader()
             writer.writerows(self._rows)
 
     def summary(self) -> dict:
-        """Return best metrics achieved during training."""
         return {
             "best_gnn_approx_ratio": self._best_ratio,
+            "best_epoch":            self._best_epoch,
             "total_epochs_run":      len(self._rows),
             "early_stopped":         self._wait >= self.max_wait,
         }
