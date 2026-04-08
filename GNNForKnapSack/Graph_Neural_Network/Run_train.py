@@ -421,15 +421,24 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--dataset_source", choices=["excel", "generated"], default="generated")
-    parser.add_argument("--generated_dir",  type=str,   default=_default_data_dir())
+    parser.add_argument("--generated_dir",  type=str,   default=_default_data_dir(),
+                        help="Training data directory (instance_*.npz)")
+    parser.add_argument("--val_dir",        type=str,   default=None,
+                        help="Separate validation directory. "
+                             "If not set, split from generated_dir.")
+    parser.add_argument("--test_dir",       type=str,   default=None,
+                        help="Separate test directory. "
+                             "If not set, split from generated_dir.")
     parser.add_argument("--k",              type=int,   default=16)
-    parser.add_argument("--train_ratio",    type=float, default=0.8)
-    parser.add_argument("--val_ratio",      type=float, default=0.1)
+    parser.add_argument("--train_ratio",    type=float, default=0.8,
+                        help="Train fraction (only used when val_dir/test_dir not set)")
+    parser.add_argument("--val_ratio",      type=float, default=0.1,
+                        help="Val fraction (only used when val_dir/test_dir not set)")
     parser.add_argument("--epochs",         type=int,   default=100)
     parser.add_argument("--batch_size",     type=int,   default=8)
     parser.add_argument("--lr",             type=float, default=1e-3)
     parser.add_argument("--hidden_dim",     type=int,   default=128)
-    parser.add_argument("--num_layers",     type=int,   default=4)
+    parser.add_argument("--num_layers",     type=int,   default=3)
     parser.add_argument("--dropout",        type=float, default=0.1)
 
     # Loss components
@@ -468,16 +477,64 @@ def main() -> None:
 
     if args.dataset_source == "excel":
         dataset = KnapsackDataset(excel_path=excel_path)
-    else:
-        dataset = GeneratedKnapsack01Dataset(
-            root_dir=args.generated_dir, k=args.k,
+        train_set, val_set, test_set = split_dataset_by_instances(
+            dataset, train_ratio=args.train_ratio, val_ratio=args.val_ratio,
         )
+        print(f"Dataset: excel  total={len(dataset)} "
+              f"train={len(train_set)}  val={len(val_set)}  test={len(test_set)}")
+    else:
+        from torch.utils.data import Subset
 
-    train_set, val_set, test_set = split_dataset_by_instances(
-        dataset, train_ratio=args.train_ratio, val_ratio=args.val_ratio,
-    )
-    print(f"Dataset: {args.dataset_source}  total={len(dataset)} "
-          f"train={len(train_set)}  val={len(val_set)}  test={len(test_set)}")
+        has_val_dir  = args.val_dir  is not None
+        has_test_dir = args.test_dir is not None
+
+        if has_val_dir and has_test_dir:
+            # MODE 1: Three separate directories (train / val / test)
+            train_dataset = GeneratedKnapsack01Dataset(root_dir=args.generated_dir, k=args.k)
+            val_dataset   = GeneratedKnapsack01Dataset(root_dir=args.val_dir,       k=args.k)
+            test_dataset  = GeneratedKnapsack01Dataset(root_dir=args.test_dir,      k=args.k)
+
+            train_set = Subset(train_dataset, list(range(len(train_dataset))))
+            val_set   = Subset(val_dataset,   list(range(len(val_dataset))))
+            test_set  = Subset(test_dataset,  list(range(len(test_dataset))))
+            dataset   = train_dataset  # for in_dim detection
+
+            print(f"Dataset: 3 SEPARATE dirs")
+            print(f"  Train: {args.generated_dir} ({len(train_set)} instances)")
+            print(f"  Val:   {args.val_dir} ({len(val_set)} instances)")
+            print(f"  Test:  {args.test_dir} ({len(test_set)} instances)")
+
+        elif has_test_dir:
+            # MODE 2: Train+Val from generated_dir, Test from test_dir
+            train_val_dataset = GeneratedKnapsack01Dataset(root_dir=args.generated_dir, k=args.k)
+            test_dataset      = GeneratedKnapsack01Dataset(root_dir=args.test_dir,      k=args.k)
+
+            # Split train_val: rescale ratios to sum to 1.0
+            total_tv = args.train_ratio + args.val_ratio
+            inner_train = args.train_ratio / total_tv if total_tv > 0 else 0.9
+
+            n_tv    = len(train_val_dataset)
+            n_train = max(1, min(int(n_tv * inner_train), n_tv - 1))
+
+            indices   = list(range(n_tv))
+            train_set = Subset(train_val_dataset, indices[:n_train])
+            val_set   = Subset(train_val_dataset, indices[n_train:])
+            test_set  = Subset(test_dataset, list(range(len(test_dataset))))
+            dataset   = train_val_dataset
+
+            print(f"Dataset: SEPARATE test dir")
+            print(f"  Train+Val: {args.generated_dir} ({n_tv} → "
+                  f"train={len(train_set)}, val={len(val_set)})")
+            print(f"  Test:      {args.test_dir} ({len(test_set)} instances)")
+
+        else:
+            # MODE 3: Single directory, auto-split
+            dataset = GeneratedKnapsack01Dataset(root_dir=args.generated_dir, k=args.k)
+            train_set, val_set, test_set = split_dataset_by_instances(
+                dataset, train_ratio=args.train_ratio, val_ratio=args.val_ratio,
+            )
+            print(f"Dataset: {args.dataset_source}  total={len(dataset)} "
+                  f"train={len(train_set)}  val={len(val_set)}  test={len(test_set)}")
 
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
     val_loader   = DataLoader(val_set,   batch_size=args.batch_size, shuffle=False)

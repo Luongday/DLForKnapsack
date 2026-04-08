@@ -1,0 +1,101 @@
+{
+  "description": "Default experiment config — uncorrelated instances n=10-100",
+
+  "data": {
+    "train_dir": "data/knapsack_ilp/train",
+    "val_dir":   "data/knapsack_ilp/val",
+    "test_dir":  "data/knapsack_ilp/test",
+    "n_items_range": [10, 100],
+    "train_instances": 1000,
+    "val_instances":   200,
+    "test_instances":  200,
+    "generator_seed":  0,
+    "weight_range":    [10, 1200],
+    "value_mult_range": [0.8, 1.3]
+  },
+
+  "gnn_supervised": {
+    "script": "Run_train.py",
+    "conv_type": "gin",
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "dropout": 0.1,
+    "use_global_ctx": true,
+    "k": 16,
+    "epochs": 100,
+    "batch_size": 8,
+    "lr": 0.001,
+    "lambda_cap_max": 0.05,
+    "lambda_cap_warmup_epochs": 15,
+    "lambda_greedy": 0.0,
+    "early_stop_wait": 15,
+    "seed": 2025,
+    "save_path": "results/GNN/gnn.pt"
+  },
+
+  "gnn_reinforce": {
+    "script": "Reinforcement_Learning/REINFORCE/train_gnn_reinforce.py",
+    "conv_type": "gin",
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "dropout": 0.0,
+    "k": 16,
+    "epochs": 50,
+    "batch_size": 16,
+    "lr": 0.0001,
+    "grad_clip": 1.0,
+    "baseline_update_every": 1,
+    "pretrained": "results/GNN/gnn.pt",
+    "seed": 2025,
+    "save_path": "results/GNN_REINFORCE/gnn_reinforce.pt"
+  },
+
+  "dqn": {
+    "script": "Reinforcement_Learning/DQN/train_dqn.py",
+    "hidden_dim": 128,
+    "train_steps": 50000,
+    "lr": 0.0003,
+    "gamma": 0.99,
+    "batch_size": 256,
+    "buffer_size": 200000,
+    "min_buffer_size": 5000,
+    "eps_start": 1.0,
+    "eps_end": 0.05,
+    "eps_decay_steps": 30000,
+    "target_update_steps": 2000,
+    "seed": 42,
+    "save_path": "results/DQN/dqn.pt"
+  },
+
+  "s2v_dqn": {
+    "script": "Reinforcement_Learning/S2V_DQN/train_s2v_dqn.py",
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "k": 16,
+    "train_steps": 50000,
+    "lr": 0.0003,
+    "gamma": 0.99,
+    "batch_size": 64,
+    "buffer_size": 50000,
+    "min_buffer_size": 1000,
+    "eps_start": 1.0,
+    "eps_end": 0.05,
+    "eps_decay_steps": 30000,
+    "target_update_steps": 1000,
+    "grad_clip": 5.0,
+    "seed": 42,
+    "save_path": "results/S2V_DQN/s2v_dqn.pt"
+  },
+
+  "ga": {
+    "population": 100,
+    "generations": 500,
+    "mutation_rate": 0.05,
+    "elite_ratio": 0.2,
+    "seed": 42
+  },
+
+  "evaluation": {
+    "max_dp_capacity": 100000
+  }
+}

@@ -94,7 +94,6 @@ class GlobalContextInjection(nn.Module):
 
         return node_context
 
-
 class KnapsackGNN(nn.Module):
     def __init__(
         self,

@@ -1,6 +1,4 @@
 """Generate Knapsack dataset using PuLP ILP solver.
-
-FIX vs original: verbose/quiet flag logic was inverted.
 """
 
 from __future__ import annotations
@@ -13,8 +11,8 @@ from typing import Optional, Tuple
 import numpy as np
 import pulp
 
-WEIGHT_LOW = 1
-WEIGHT_HIGH = 1000
+WEIGHT_LOW = 10
+WEIGHT_HIGH = 1200
 VALUE_MULT_LOW = 0.8
 VALUE_MULT_HIGH = 1.3
 
@@ -125,7 +123,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("samples", type=int)
     parser.add_argument("min", type=int)
     parser.add_argument("max", type=int)
-    parser.add_argument("-p", "--path", type=Path, default=Path("data"))
+    parser.add_argument("-p", "--path", type=Path, default=Path("data/knapsack_ilp"))
     parser.add_argument("-s", "--seed", type=int, default=0)
     parser.add_argument("-i", "--instances", type=int, default=100)
     parser.add_argument("--max_attempts", type=int, default=20)
@@ -145,7 +143,7 @@ def main() -> None:
         min_items=args.min, max_items=args.max,
         n_instances=args.instances, seed=args.seed,
         max_attempts=args.max_attempts, time_limit=args.time_limit,
-        verbose=not args.quiet,  # FIX: was `verbose=args.quiet` (inverted)
+        verbose=not args.quiet,
     )
 
 

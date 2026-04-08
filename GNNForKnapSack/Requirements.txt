@@ -1,0 +1,16 @@
+# Core
+numpy>=1.24.0
+torch>=2.0.0
+torch-geometric>=2.4.0
+
+# Data generation (ILP solver)
+pulp>=2.7.0
+
+# Data handling
+pandas>=2.0.0
+
+# Plotting
+matplotlib>=3.7.0
+
+# Testing
+pytest>=7.0.0

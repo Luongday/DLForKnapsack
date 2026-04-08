@@ -1,0 +1,61 @@
+{
+  "description": "Pisinger strongly correlated instances (type 3) — where Greedy is weakest",
+
+  "data": {
+    "train_dir": "data/pisinger/type_03/train",
+    "val_dir":   "data/pisinger/type_03/val",
+    "test_dir":  "data/pisinger/type_03/test",
+    "n_items": 100,
+    "train_instances": 1000,
+    "val_instances":   200,
+    "test_instances":  200,
+    "instance_type":   3,
+    "coeff_range":     1000,
+    "notes": "Greedy drops to ~0.987 on this distribution, creating room for neural solvers"
+  },
+
+  "gnn_supervised": {
+    "script": "Run_train.py",
+    "conv_type": "gin",
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "dropout": 0.1,
+    "use_global_ctx": true,
+    "epochs": 100,
+    "batch_size": 8,
+    "lr": 0.001,
+    "lambda_cap_max": 0.05,
+    "lambda_greedy": 0.1,
+    "early_stop_wait": 15,
+    "save_path": "results/GNN_HARD/gnn.pt"
+  },
+
+  "gnn_reinforce": {
+    "script": "Reinforcement_Learning/REINFORCE/train_gnn_reinforce.py",
+    "conv_type": "gin",
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "epochs": 100,
+    "batch_size": 16,
+    "lr": 0.0001,
+    "pretrained": "results/GNN_HARD/gnn.pt",
+    "save_path": "results/GNN_REINFORCE_HARD/gnn_reinforce.pt"
+  },
+
+  "dqn": {
+    "script": "Reinforcement_Learning/DQN/train_dqn.py",
+    "hidden_dim": 128,
+    "train_steps": 100000,
+    "lr": 0.0003,
+    "save_path": "results/DQN_HARD/dqn.pt"
+  },
+
+  "s2v_dqn": {
+    "script": "Reinforcement_Learning/S2V_DQN/train_s2v_dqn.py",
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "train_steps": 100000,
+    "lr": 0.0003,
+    "save_path": "results/S2V_DQN_HARD/s2v_dqn.pt"
+  }
+}

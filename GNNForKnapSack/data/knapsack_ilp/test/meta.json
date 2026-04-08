@@ -1,19 +1,19 @@
 {
-                                          "seed": 123,
-                                          "num_instances": 200,
-                                          "failed_instances": 0,
-                                          "successful_instances": 200,
-                                          "min_items": 10,
-                                          "max_items": 100,
-                                          "n_instances_tiers": 100,
-                                          "weight_range": [
-                                                                                    1,
-                                                                                    1000
-                                          ],
-                                          "value_mult_range": [
-                                                                                    0.8,
-                                                                                    1.3
-                                          ],
-                                          "solver": "PuLP/CBC (ILP)",
-                                          "total_time_sec": 19.639
+  "seed": 200,
+  "num_instances": 200,
+  "failed_instances": 0,
+  "successful_instances": 200,
+  "min_items": 10,
+  "max_items": 200,
+  "n_instances_tiers": 100,
+  "weight_range": [
+    10,
+    1200
+  ],
+  "value_mult_range": [
+    0.8,
+    1.3
+  ],
+  "solver": "PuLP/CBC (ILP)",
+  "total_time_sec": 20.804
 }

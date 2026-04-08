@@ -65,7 +65,7 @@ def solve_knapsack_dp(
 
 
 def _default_dataset_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "data" / "knapsack_ilp" / "train"
+    return Path(__file__).resolve().parents[2] / "data" / "knapsack_ilp" / "test"
 
 def _default_out_csv() -> Path:
     return Path(__file__).resolve().parents[2] / "results" / "DP" / "dp_results.csv"

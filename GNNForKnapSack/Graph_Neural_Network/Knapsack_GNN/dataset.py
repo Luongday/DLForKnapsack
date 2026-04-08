@@ -149,11 +149,6 @@ class _LazyKnapsackDataset(Dataset):
 # ---------------------------------------------------------------------------
 
 class GeneratedKnapsack01Dataset(InMemoryDataset):
-    """Dataset for generated NPZ knapsack instances.
-
-    Compatible with data_generate_01.py and Generate_Data.py output.
-    """
-
     def __init__(
         self,
         root_dir:  Union[str, Path],
@@ -199,7 +194,6 @@ class GeneratedKnapsack01Dataset(InMemoryDataset):
 
     @classmethod
     def get_lazy(cls, root_dir: Union[str, Path], k: int = 16, use_knn: bool = True):
-        """Return lazy Dataset that loads NPZ on demand."""
         root_dir = Path(root_dir)
         files = sorted(root_dir.glob("instance_*.npz"))
         if not files:

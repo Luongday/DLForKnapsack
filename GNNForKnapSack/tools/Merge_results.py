@@ -248,23 +248,27 @@ def _process_solver(
 # ---------------------------------------------------------------------------
 
 def merge(
-    dp_rows:      Optional[Dict] = None,
-    gnn_rows:     Optional[Dict] = None,
-    greedy_rows:  Optional[Dict] = None,
-    ga_rows:      Optional[Dict] = None,
-    dqn_rows:     Optional[Dict] = None,
-    out_dir:      Path = Path("results/compare"),
-    verbose:      bool = False,
+    dp_rows:         Optional[Dict] = None,
+    gnn_rows:        Optional[Dict] = None,
+    greedy_rows:     Optional[Dict] = None,
+    ga_rows:         Optional[Dict] = None,
+    dqn_rows:        Optional[Dict] = None,
+    s2v_rows:        Optional[Dict] = None,
+    reinforce_rows:  Optional[Dict] = None,
+    out_dir:         Path = Path("results/compare"),
+    verbose:         bool = False,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Collect all solver data
     solver_data = {
-        "dp":      dp_rows,
-        "gnn":     gnn_rows,
-        "greedy":  greedy_rows,
-        "ga":      ga_rows,
-        "dqn":     dqn_rows,
+        "dp":         dp_rows,
+        "gnn":        gnn_rows,
+        "greedy":     greedy_rows,
+        "ga":         ga_rows,
+        "dqn":        dqn_rows,
+        "s2v":        s2v_rows,
+        "reinforce":  reinforce_rows,
     }
     active_solvers = {k: v for k, v in solver_data.items() if v is not None}
 
@@ -316,7 +320,7 @@ def merge(
         }
 
         # Process each non-DP solver
-        for solver_name in ["gnn", "greedy", "ga", "dqn"]:
+        for solver_name in ["gnn", "greedy", "ga", "dqn", "s2v", "reinforce"]:
             solver_rows = solver_data.get(solver_name)
             if solver_rows is None:
                 # Add None columns for missing solvers
@@ -447,6 +451,10 @@ def parse_args() -> argparse.Namespace:
                         default=root / "results" / "GA" / "ga_eval_results.csv")
     parser.add_argument("--dqn_csv",     type=Path, default=None,
                         help="[Optional] DQN eval CSV. Leave empty if not ready.")
+    parser.add_argument("--s2v_csv",     type=Path, default=None,
+                        help="[Optional] S2V-DQN eval CSV. Leave empty if not ready.")
+    parser.add_argument("--reinforce_csv", type=Path, default=None,
+                        help="[Optional] REINFORCE eval CSV. Leave empty if not ready.")
     parser.add_argument("--out_dir",     type=Path,
                         default=root / "results" / "compare")
     parser.add_argument("--skip_missing", action="store_true",
@@ -461,11 +469,13 @@ if __name__ == "__main__":
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    dp_rows      = load_csv(args.dp_csv,     "DP")
-    gnn_rows     = load_csv(args.gnn_csv,    "GNN")
-    greedy_rows  = load_csv(args.greedy_csv, "Greedy")
-    ga_rows      = load_csv(args.ga_csv,     "GA")
-    dqn_rows     = load_csv(args.dqn_csv, "DQN") if args.dqn_csv else None
+    dp_rows         = load_csv(args.dp_csv,     "DP")
+    gnn_rows        = load_csv(args.gnn_csv,    "GNN")
+    greedy_rows     = load_csv(args.greedy_csv, "Greedy")
+    ga_rows         = load_csv(args.ga_csv,     "GA")
+    dqn_rows        = load_csv(args.dqn_csv, "DQN") if args.dqn_csv else None
+    s2v_rows        = load_csv(args.s2v_csv, "S2V-DQN") if args.s2v_csv else None
+    reinforce_rows  = load_csv(args.reinforce_csv, "REINFORCE") if args.reinforce_csv else None
 
     if dp_rows is None and not args.skip_missing:
         raise SystemExit("DP results required as ground truth. Run dp_baseline_eval.py first.")
@@ -476,6 +486,8 @@ if __name__ == "__main__":
         greedy_rows=greedy_rows,
         ga_rows=ga_rows,
         dqn_rows=dqn_rows,
+        s2v_rows=s2v_rows,
+        reinforce_rows=reinforce_rows,
         out_dir=args.out_dir,
         verbose=args.verbose,
     )
