@@ -1,11 +1,4 @@
-"""Post-epoch evaluation callback for KnapsackGNN training.
-
-Improvements vs original:
-    - Uses centralized decode_utils (no duplicate greedy decode)
-    - Per-instance ratio computation (correct) before averaging
-    - Tracks best_epoch for summary
-    - Compares with Greedy baseline each epoch
-"""
+"""Post-epoch evaluation callback for KnapsackGNN training"""
 
 from __future__ import annotations
 

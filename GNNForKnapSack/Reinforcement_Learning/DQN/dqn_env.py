@@ -20,6 +20,7 @@ class KnapsackEnv:
     def __init__(self, weights: np.ndarray, values: np.ndarray, capacity: int, eps: float = 1e-8):
         self.w = np.asarray(weights).astype(np.float32)
         self.v = np.asarray(values).astype(np.float32)
+        self.v_max = float(self.v.max())
         self.W = float(capacity)
         self.eps = eps
         self.n = int(self.w.shape[0])
@@ -56,7 +57,7 @@ class KnapsackEnv:
             self.total_weight += float(self.w[self.i])
             self.total_value += float(self.v[self.i])
             self.selection[self.i] = 1
-            reward = float(self.v[self.i])
+            reward = float(self.v[self.i]) / (self.v_max + self.eps)
 
         self.i += 1
         done = (self.i >= self.n)

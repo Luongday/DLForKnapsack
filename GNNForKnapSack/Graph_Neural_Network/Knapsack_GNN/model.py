@@ -1,17 +1,4 @@
-"""KnapsackGNN model — improved architecture.
-
-Improvements vs original:
-    - in_dim default updated: 4 → 6 (matches new Graph_builder features).
-    - Added GlobalAttentionReadout: a lightweight global attention pooling
-      that gives each node awareness of the *entire graph's* state.
-      This is critical for constraint satisfaction — items need to "know"
-      what other items have been selected globally.
-    - Added global context injection: after GNN layers, concatenate
-      graph-level readout to each node before final classification.
-      Node sees [local_features | global_context] before deciding.
-    - Kept backward compatibility: load_checkpoint handles old 4-dim models.
-    - SAGEConv + BatchNorm + Residual preserved from previous version.
-"""
+"""KnapsackGNN model — v4 stability-focused edition."""
 
 from __future__ import annotations
 
@@ -19,22 +6,31 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from click.types import convert_type
 from torch import nn
 from torch_geometric.data import Data
-from torch_geometric.nn import SAGEConv,GINConv,global_mean_pool
+from torch_geometric.nn import SAGEConv, GINConv, global_add_pool
+from torch_geometric.utils import softmax as scatter_softmax
 
-DEFAULT_IN_DIM     = 6
+DEFAULT_IN_DIM     = 7
 DEFAULT_HIDDEN_DIM = 128
 DEFAULT_NUM_LAYERS = 3
 DEFAULT_DROPOUT    = 0.1
-DEFAULT_CONV_TYPE = "gin"
+DEFAULT_CONV_TYPE  = "gin"
 
+
+# ---------------------------------------------------------------------------
+# Conv layer factories
+# ---------------------------------------------------------------------------
 
 def _make_gin_conv(in_dim: int, out_dim: int) -> GINConv:
+    """GINConv with LayerNorm inside the MLP for stability with mixed batch sizes.
+
+    LayerNorm normalizes per-node (not per-batch), so it works correctly
+    when batches contain graphs of very different sizes (n=10 vs n=200).
+    """
     mlp = nn.Sequential(
         nn.Linear(in_dim, out_dim),
-        nn.BatchNorm1d(out_dim),
+        nn.LayerNorm(out_dim),
         nn.ReLU(),
         nn.Linear(out_dim, out_dim),
     )
@@ -53,8 +49,17 @@ def _make_conv(conv_type: str, in_dim: int, out_dim: int):
     else:
         raise ValueError(f"Unknown conv_type: {conv_type}")
 
+
+# ---------------------------------------------------------------------------
+# Global context injection — VECTORIZED
+# ---------------------------------------------------------------------------
+
 class GlobalContextInjection(nn.Module):
-    """Attention-weighted global pooling broadcast to each node."""
+    """Attention-weighted global pooling broadcast to each node.
+
+    VECTORIZED implementation using scatter_softmax and global_add_pool.
+    No Python loops — works in a single forward pass regardless of batch size.
+    """
     def __init__(self, hidden_dim: int):
         super().__init__()
         self.attn_gate = nn.Sequential(
@@ -67,52 +72,50 @@ class GlobalContextInjection(nn.Module):
     def forward(
         self, x: torch.Tensor, batch: torch.Tensor
     ) -> torch.Tensor:
-        # Attention weights per node
-        attn_scores = self.attn_gate(x)                    # [N, 1]
-        attn_weights = torch.zeros_like(attn_scores)
+        """
+        Args:
+            x:     [N, H] node embeddings
+            batch: [N]    graph assignment per node
+        Returns:
+            [N, H] per-node global context (same for all nodes in one graph)
+        """
+        # Attention scores per node → softmax across each graph (vectorized)
+        attn_scores  = self.attn_gate(x)                        # [N, 1]
+        attn_weights = scatter_softmax(attn_scores, batch, dim=0)  # [N, 1]
 
-        # Softmax per graph
-        for g in range(int(batch.max().item()) + 1):
-            mask = batch == g
-            if mask.sum() > 0:
-                attn_weights[mask] = torch.softmax(attn_scores[mask], dim=0)
-
-        # Weighted sum per graph
-        weighted = x * attn_weights                         # [N, H]
-        graph_emb = global_mean_pool(weighted, batch)       # [G, H] (mean over weighted)
-
-        # Scale correction: mean_pool on weighted = sum/count, we want sum
-        # So multiply by count per graph
-        counts = torch.zeros(graph_emb.size(0), 1, device=x.device)
-        for g in range(graph_emb.size(0)):
-            counts[g] = (batch == g).sum()
-        graph_emb = graph_emb * counts
+        # Weighted sum per graph (vectorized, no Python loop)
+        weighted  = x * attn_weights                            # [N, H]
+        graph_emb = global_add_pool(weighted, batch)            # [G, H]
 
         # Project and broadcast back to nodes
-        context = self.context_proj(graph_emb)              # [G, H]
-        node_context = context[batch]                       # [N, H]
-
+        context      = self.context_proj(graph_emb)             # [G, H]
+        node_context = context[batch]                           # [N, H]
         return node_context
+
+
+# ---------------------------------------------------------------------------
+# Main model
+# ---------------------------------------------------------------------------
 
 class KnapsackGNN(nn.Module):
     def __init__(
         self,
-        in_dim:        int   = DEFAULT_IN_DIM,
-        hidden_dim:    int   = DEFAULT_HIDDEN_DIM,
-        num_layers:    int   = DEFAULT_NUM_LAYERS,
-        dropout:       float = DEFAULT_DROPOUT,
-        use_residual:  bool  = True,
-        use_global_ctx: bool = True,
-        conv_type: str = DEFAULT_CONV_TYPE,
+        in_dim:         int   = DEFAULT_IN_DIM,
+        hidden_dim:     int   = DEFAULT_HIDDEN_DIM,
+        num_layers:     int   = DEFAULT_NUM_LAYERS,
+        dropout:        float = DEFAULT_DROPOUT,
+        use_residual:   bool  = True,
+        use_global_ctx: bool  = True,
+        conv_type:      str   = DEFAULT_CONV_TYPE,
     ):
         super().__init__()
-        self.in_dim        = in_dim
-        self.hidden_dim    = hidden_dim
-        self.num_layers    = num_layers
-        self.dropout_p     = dropout
-        self.use_residual  = use_residual
+        self.in_dim         = in_dim
+        self.hidden_dim     = hidden_dim
+        self.num_layers     = num_layers
+        self.dropout_p      = dropout
+        self.use_residual   = use_residual
         self.use_global_ctx = use_global_ctx
-        self.conv_type = conv_type
+        self.conv_type      = conv_type
 
         # Message passing layers
         self.convs = nn.ModuleList()
@@ -127,8 +130,9 @@ class KnapsackGNN(nn.Module):
             for _ in range(num_layers - 1):
                 self.convs.append(_make_conv(conv_type, hidden_dim, hidden_dim))
 
-        self.bns = nn.ModuleList([
-            nn.BatchNorm1d(hidden_dim) for _ in range(num_layers)
+        # LayerNorm between layers — stable across mixed graph sizes
+        self.norms = nn.ModuleList([
+            nn.LayerNorm(hidden_dim) for _ in range(num_layers)
         ])
         self.dropout = nn.Dropout(p=dropout)
 
@@ -140,6 +144,7 @@ class KnapsackGNN(nn.Module):
             self.global_ctx = GlobalContextInjection(hidden_dim)
             self.fusion     = nn.Sequential(
                 nn.Linear(hidden_dim * 2, hidden_dim),
+                nn.LayerNorm(hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(p=dropout),
             )
@@ -169,7 +174,7 @@ class KnapsackGNN(nn.Module):
         for i, conv in enumerate(self.convs):
             x_in = x
             x = conv(x, edge_index)
-            x = self.bns[i](x)
+            x = self.norms[i](x)
             x = torch.relu(x)
             x = self.dropout(x)
 
@@ -181,8 +186,8 @@ class KnapsackGNN(nn.Module):
 
         # Global context injection
         if self.use_global_ctx and self.global_ctx is not None:
-            ctx = self.global_ctx(x, batch_vec)   # [N, H]
-            x   = self.fusion(torch.cat([x, ctx], dim=1))  # [N, 2H] → [N, H]
+            ctx = self.global_ctx(x, batch_vec)             # [N, H]
+            x   = self.fusion(torch.cat([x, ctx], dim=1))   # [N, 2H] → [N, H]
 
         logits = self.lin(x).squeeze(-1)  # [num_nodes]
         return logits
@@ -217,8 +222,9 @@ def save_checkpoint(model: KnapsackGNN, path: Path | str) -> None:
             CKPT_KEY_RESIDUAL:   model.use_residual,
             CKPT_KEY_GLOBAL_CTX: model.use_global_ctx,
             CKPT_KEY_CONV_TYPE:  model.conv_type,
-            CKPT_KEY_ARCH:       "gin_v3",
-        },path)
+            CKPT_KEY_ARCH:       "gin_v4_layernorm",
+        }, path)
+
 
 def load_checkpoint(
     path:    Path | str,
@@ -234,12 +240,13 @@ def load_checkpoint(
         dp           = ckpt.get(CKPT_KEY_DROPOUT,    DEFAULT_DROPOUT)
         use_residual = ckpt.get(CKPT_KEY_RESIDUAL,   True)
         use_global   = ckpt.get(CKPT_KEY_GLOBAL_CTX, True)
-        conv_type    = ckpt.get(CKPT_KEY_CONV_TYPE, "sage")
+        conv_type    = ckpt.get(CKPT_KEY_CONV_TYPE, "gin")
         arch         = ckpt.get(CKPT_KEY_ARCH,       "unknown")
         state_dict   = ckpt[CKPT_KEY_STATE]
 
-        if arch in ("gcn", "sage", "sage_v2"):
-            print(f"[load_checkpoint] Old {arch} checkpoint -> rebuilding as {conv_type}.")
+        if arch not in ("gin_v4_layernorm",):
+            print(f"[load_checkpoint] Old {arch} checkpoint — loading with strict=False. "
+                  f"BatchNorm stats will be dropped; LayerNorm will start fresh.")
     else:
         state_dict   = ckpt
         in_dim       = DEFAULT_IN_DIM
@@ -248,7 +255,7 @@ def load_checkpoint(
         dp           = DEFAULT_DROPOUT
         use_residual = True
         use_global   = True
-        conv_type = "sage"
+        conv_type    = "gin"
         print("[load_checkpoint] Legacy raw state_dict. Using defaults.")
 
     if dropout is not None:
@@ -264,9 +271,9 @@ def load_checkpoint(
 
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing:
-        print(f"[load_checkpoint] Missing keys: {missing}")
+        print(f"[load_checkpoint] Missing keys: {len(missing)} (ok for version upgrade)")
     if unexpected:
-        print(f"[load_checkpoint] Unexpected keys: {unexpected}")
+        print(f"[load_checkpoint] Unexpected keys: {len(unexpected)} (ok for version upgrade)")
 
     model.eval()
     return model

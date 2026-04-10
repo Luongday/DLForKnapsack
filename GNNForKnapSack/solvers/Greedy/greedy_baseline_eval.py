@@ -123,7 +123,7 @@ def evaluate(
             "selected_items":    json.dumps(selected_idx),
         })
 
-        if verbose and ((idx + 1) % 100 == 0 or idx == 0):
+        if verbose and ((idx + 1) % 10 == 0 or idx == 0):
             elapsed = time.perf_counter() - total_start
             mark(f"[{idx+1}/{len(files)}] elapsed={elapsed:.1f}s val={total_value} time={t_ms:.3f}ms")
 

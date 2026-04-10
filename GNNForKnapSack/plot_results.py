@@ -1,4 +1,4 @@
-"""Visualization for Knapsack solver comparison. """
+"""Visualization for Knapsack solver comparison."""
 
 from __future__ import annotations
 
@@ -38,9 +38,9 @@ def plot_solver_comparison(summary_path: Path, out_dir: Path) -> None:
     times = []
     labels_detail = []
 
-    solver_order = ["dp", "ga", "greedy", "gnn", "dqn", "s2v", "reinforce"]
+    solver_order = ["dp", "ga", "bb", "greedy", "gnn", "dqn", "s2v", "reinforce"]
     solver_colors = {
-        "dp": "#5F5E5A", "ga": "#1D9E75", "greedy": "#7F77DD",
+        "dp": "#5F5E5A", "ga": "#1D9E75", "bb": "#6C5CE7", "greedy": "#7F77DD",
         "gnn": "#D85A30", "dqn": "#378ADD", "s2v": "#E8A33D",
         "reinforce": "#A23B72",
     }
@@ -107,21 +107,27 @@ def plot_ratio_distribution(merged_csv: Path, out_dir: Path) -> None:
         rows = list(reader)
 
     if not rows:
+        mark(f"[SKIP] ratio_distribution: {merged_csv.name} is empty")
         return
+
+    # Check which columns exist
+    available_cols = set(rows[0].keys())
+    mark(f"  merged CSV columns: {sorted(available_cols)}")
 
     solver_cols = {
         "GNN": "gnn_ratio", "Greedy": "greedy_ratio",
-        "GA": "ga_ratio", "DQN": "dqn_ratio", "S2V-DQN": "s2v_ratio",
+        "GA": "ga_ratio", "BB": "bb_ratio", "DQN": "dqn_ratio", "S2V-DQN": "s2v_ratio",
         "REINFORCE": "reinforce_ratio",
     }
     solver_colors_map = {
         "GNN": "#D85A30", "Greedy": "#7F77DD",
-        "GA": "#1D9E75", "DQN": "#378ADD", "S2V-DQN": "#E8A33D",
+        "GA": "#1D9E75", "BB": "#6C5CE7", "DQN": "#378ADD", "S2V-DQN": "#E8A33D",
         "REINFORCE": "#A23B72",
     }
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
+    any_data = False
     for name, col in solver_cols.items():
         vals = []
         for r in rows:
@@ -132,8 +138,14 @@ def plot_ratio_distribution(merged_csv: Path, out_dir: Path) -> None:
                 except ValueError:
                     pass
         if vals:
+            any_data = True
             ax.hist(vals, bins=30, alpha=0.5, label=f"{name} (n={len(vals)})",
                     color=solver_colors_map.get(name, "#888"), edgecolor="white", linewidth=0.5)
+
+    if not any_data:
+        mark(f"[SKIP] ratio_distribution: no solver ratio columns found in {merged_csv.name}")
+        plt.close(fig)
+        return
 
     ax.set_xlabel("Approximation Ratio (vs DP)")
     ax.set_ylabel("Count")
@@ -153,28 +165,53 @@ def plot_ratio_distribution(merged_csv: Path, out_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_ratio_by_size(merged_csv: Path, out_dir: Path) -> None:
-    """Line chart: ratio vs n_items for each solver."""
+    """Line chart: ratio vs n_items for each solver. Bins adapt to data range."""
     import csv
 
     with merged_csv.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
     if not rows:
+        mark(f"[SKIP] ratio_by_size: {merged_csv.name} is empty")
         return
 
     solver_info = [
         ("GNN", "gnn_ratio", "#D85A30"),
         ("Greedy", "greedy_ratio", "#7F77DD"),
         ("GA", "ga_ratio", "#1D9E75"),
+        ("BB", "bb_ratio", "#6C5CE7"),
         ("DQN", "dqn_ratio", "#378ADD"),
         ("S2V-DQN", "s2v_ratio", "#E8A33D"),
+        ("REINFORCE", "reinforce_ratio", "#A23B72"),
     ]
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    bins = [(10, 25), (25, 40), (40, 60), (60, 80), (80, 101)]
-    bin_labels = ["10-25", "25-40", "40-60", "60-80", "80-100"]
+    # Adaptive bins based on actual data range
+    n_values = []
+    for r in rows:
+        try:
+            n_values.append(int(r.get("n_items", 0)))
+        except (ValueError, TypeError):
+            pass
 
+    if not n_values:
+        mark(f"[SKIP] ratio_by_size: no valid n_items column in {merged_csv.name}")
+        return
+
+    n_min, n_max = min(n_values), max(n_values)
+    # Create 5 equal-width bins across the actual range
+    n_bins = 5
+    step = max(1, (n_max - n_min + 1) // n_bins)
+    bins = []
+    bin_labels = []
+    for i in range(n_bins):
+        lo = n_min + i * step
+        hi = n_min + (i + 1) * step if i < n_bins - 1 else n_max + 1
+        bins.append((lo, hi))
+        bin_labels.append(f"{lo}-{hi-1}")
+
+    any_plotted = False
     for name, col, color in solver_info:
         means = []
         valid = False
@@ -193,10 +230,16 @@ def plot_ratio_by_size(merged_csv: Path, out_dir: Path) -> None:
                 valid = True
 
         if valid:
+            any_plotted = True
             x_vals = list(range(len(bins)))
             y_vals = [m for m in means if m is not None]
             x_valid = [x for x, m in zip(x_vals, means) if m is not None]
             ax.plot(x_valid, y_vals, "o-", label=name, color=color, linewidth=2, markersize=6)
+
+    if not any_plotted:
+        mark(f"[SKIP] ratio_by_size: no solver data in {merged_csv.name}")
+        plt.close(fig)
+        return
 
     ax.set_xticks(range(len(bins)))
     ax.set_xticklabels(bin_labels)
@@ -277,8 +320,12 @@ def _plot_gnn_training_curve(rows: list, log_csv: Path, out_dir: Path) -> None:
     ax.grid(axis="y", alpha=0.3)
 
     plt.tight_layout()
+    # Use parent folder name to avoid collisions when multiple logs share
+    # the same filename (e.g. results/DQN/training_log.csv and
+    # results/S2V_DQN/training_log.csv both have stem "training_log")
+    parent_name = log_csv.parent.name
     stem = log_csv.stem
-    path = out_dir / f"{stem}_curve.png"
+    path = out_dir / f"{parent_name}_{stem}_curve.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     plt.close()
     mark(f"Saved: {path}")
@@ -333,8 +380,10 @@ def _plot_rl_training_curve(rows: list, log_csv: Path, out_dir: Path) -> None:
     ax.grid(axis="y", alpha=0.3)
 
     plt.tight_layout()
+    # Use parent folder name to avoid collisions across DQN/S2V/REINFORCE logs
+    parent_name = log_csv.parent.name
     stem = log_csv.stem
-    path = out_dir / f"{stem}_curve.png"
+    path = out_dir / f"{parent_name}_{stem}_curve.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     plt.close()
     mark(f"Saved: {path}")
@@ -363,6 +412,10 @@ def plot_head_to_head(merged_csv: Path, out_dir: Path) -> None:
                 pass
 
     if not gnn_vals:
+        has_gnn = rows and "gnn_ratio" in rows[0]
+        has_greedy = rows and "greedy_ratio" in rows[0]
+        mark(f"[SKIP] head_to_head: no valid GNN-vs-Greedy pairs. "
+             f"gnn_ratio_col={has_gnn} greedy_ratio_col={has_greedy}")
         return
 
     fig, ax = plt.subplots(figsize=(7, 7))
@@ -435,7 +488,7 @@ def plot_cross_scale(cross_scale_csv: Path, out_dir: Path) -> None:
 
     # Canonical solver colors (match other plots)
     color_map = {
-        "DP": "#5F5E5A", "GA": "#1D9E75", "GREEDY": "#7F77DD",
+        "DP": "#5F5E5A", "GA": "#1D9E75", "BB": "#6C5CE7", "GREEDY": "#7F77DD",
         "GNN": "#D85A30", "DQN": "#378ADD", "S2V": "#E8A33D",
         "REINFORCE": "#A23B72",
     }
@@ -502,29 +555,48 @@ def main():
 
     args = parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    mark(f"Output dir: {args.out_dir.resolve()}")
 
     if args.results_dir:
         summary_path = args.results_dir / "summary.json"
         merged_path  = args.results_dir / "merged_results.csv"
+        mark(f"Checking results_dir: {args.results_dir.resolve()}")
+        mark(f"  summary.json exists:       {summary_path.exists()}")
+        mark(f"  merged_results.csv exists: {merged_path.exists()}")
 
         if summary_path.exists():
             plot_solver_comparison(summary_path, args.out_dir)
+        else:
+            mark(f"[SKIP] solver_comparison: {summary_path} not found. "
+                 f"Run Merge_results.py first.")
 
         if merged_path.exists():
             plot_ratio_distribution(merged_path, args.out_dir)
             plot_ratio_by_size(merged_path, args.out_dir)
             plot_head_to_head(merged_path, args.out_dir)
+        else:
+            mark(f"[SKIP] ratio_distribution/ratio_by_size/head_to_head: "
+                 f"{merged_path} not found. Run Merge_results.py first.")
 
-    if args.training_log and args.training_log.exists():
-        plot_training_curve(args.training_log, args.out_dir)
+    if args.training_log:
+        if args.training_log.exists():
+            plot_training_curve(args.training_log, args.out_dir)
+        else:
+            mark(f"[SKIP] training_curve: {args.training_log} not found")
 
     if args.training_logs:
         for log in args.training_logs:
-            if Path(log).exists():
-                plot_training_curve(Path(log), args.out_dir)
+            log_p = Path(log)
+            if log_p.exists():
+                plot_training_curve(log_p, args.out_dir)
+            else:
+                mark(f"[SKIP] training_curve: {log_p} not found")
 
-    if args.cross_scale_csv and args.cross_scale_csv.exists():
-        plot_cross_scale(args.cross_scale_csv, args.out_dir)
+    if args.cross_scale_csv:
+        if args.cross_scale_csv.exists():
+            plot_cross_scale(args.cross_scale_csv, args.out_dir)
+        else:
+            mark(f"[SKIP] cross_scale: {args.cross_scale_csv} not found")
 
     if not any([args.results_dir, args.training_log, args.training_logs,
                 args.cross_scale_csv]):

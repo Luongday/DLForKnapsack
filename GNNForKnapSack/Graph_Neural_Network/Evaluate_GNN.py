@@ -1,12 +1,4 @@
-"""Per-instance GNN evaluation — aligned with DP/Greedy/GA CSV schema.
-
-Improvements vs original:
-    - Uses centralized decode_utils (single source of truth)
-    - Uses centralized instance_loader
-    - Explicit OOR guard: asserts probs length == n_items before decode
-    - model.eval() + dropout=0.0 for deterministic inference
-    - build_knapsack_graph_inference for clean inference graph (no solution)
-"""
+"""Per-instance GNN evaluation — aligned with DP/Greedy/GA CSV schema."""
 
 from __future__ import annotations
 
@@ -77,7 +69,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load model with dropout=0.0 for deterministic inference
-    model = load_checkpoint(args.model_path, device=device, dropout=0.0)
+    model = load_checkpoint(args.model_path, device=device, dropout=0.1)
     model.eval()
 
     files = list_instances(args.dataset_dir, limit=args.n)

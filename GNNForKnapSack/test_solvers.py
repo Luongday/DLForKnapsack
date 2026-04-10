@@ -43,36 +43,36 @@ TIGHT_OPT = 50  # only item 0
 
 class TestDP:
     def test_simple(self):
-        from Dp import solve_knapsack_dp
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
         sol = solve_knapsack_dp(SIMPLE_W, SIMPLE_V, SIMPLE_C)
         value = sum(v * s for v, s in zip(SIMPLE_V, sol))
         assert value == SIMPLE_OPT, f"Expected {SIMPLE_OPT}, got {value}"
 
     def test_all_fit(self):
-        from Dp import solve_knapsack_dp
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
         sol = solve_knapsack_dp(ALL_FIT_W, ALL_FIT_V, ALL_FIT_C)
         value = sum(v * s for v, s in zip(ALL_FIT_V, sol))
         assert value == ALL_FIT_OPT
 
     def test_tight(self):
-        from Dp import solve_knapsack_dp
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
         sol = solve_knapsack_dp(TIGHT_W, TIGHT_V, TIGHT_C)
         value = sum(v * s for v, s in zip(TIGHT_V, sol))
         assert value == TIGHT_OPT
 
     def test_empty(self):
-        from Dp import solve_knapsack_dp
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
         sol = solve_knapsack_dp([], [], 100)
         assert sol == []
 
     def test_feasibility(self):
-        from Dp import solve_knapsack_dp
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
         sol = solve_knapsack_dp(SIMPLE_W, SIMPLE_V, SIMPLE_C)
         weight = sum(w * s for w, s in zip(SIMPLE_W, sol))
         assert weight <= SIMPLE_C, f"Weight {weight} exceeds capacity {SIMPLE_C}"
 
     def test_both_implementations_agree(self):
-        from Dp import solve_knapsack_dp_python, solve_knapsack_dp_np
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp_python, solve_knapsack_dp_np
         sol1 = solve_knapsack_dp_python(SIMPLE_W, SIMPLE_V, SIMPLE_C)
         sol2 = solve_knapsack_dp_np(SIMPLE_W, SIMPLE_V, SIMPLE_C)
         v1 = sum(v * s for v, s in zip(SIMPLE_V, sol1))
@@ -86,7 +86,7 @@ class TestDP:
 
 class TestGreedy:
     def test_feasibility(self):
-        from greedy_baseline_eval import solve_knapsack_greedy
+        from GNNForKnapSack.solvers.Greedy.greedy_baseline_eval import solve_knapsack_greedy
         W = np.array(SIMPLE_W, dtype=np.int32)
         V = np.array(SIMPLE_V, dtype=np.int32)
         selected = solve_knapsack_greedy(W, V, SIMPLE_C)
@@ -94,7 +94,7 @@ class TestGreedy:
         assert weight <= SIMPLE_C
 
     def test_all_fit(self):
-        from greedy_baseline_eval import solve_knapsack_greedy
+        from GNNForKnapSack.solvers.Greedy.greedy_baseline_eval import solve_knapsack_greedy
         W = np.array(ALL_FIT_W, dtype=np.int32)
         V = np.array(ALL_FIT_V, dtype=np.int32)
         selected = solve_knapsack_greedy(W, V, ALL_FIT_C)
@@ -102,13 +102,13 @@ class TestGreedy:
         assert value == ALL_FIT_OPT
 
     def test_empty(self):
-        from greedy_baseline_eval import solve_knapsack_greedy
+        from GNNForKnapSack.solvers.Greedy.greedy_baseline_eval import solve_knapsack_greedy
         selected = solve_knapsack_greedy(np.array([], dtype=np.int32),
                                           np.array([], dtype=np.int32), 100)
         assert selected == []
 
     def test_returns_sorted(self):
-        from greedy_baseline_eval import solve_knapsack_greedy
+        from GNNForKnapSack.solvers.Greedy.greedy_baseline_eval import solve_knapsack_greedy
         W = np.array([10, 20, 30, 5, 15], dtype=np.int32)
         V = np.array([60, 100, 120, 40, 80], dtype=np.int32)
         selected = solve_knapsack_greedy(W, V, 50)
@@ -121,7 +121,7 @@ class TestGreedy:
 
 class TestGA:
     def test_feasibility(self):
-        from ga_baseline_eval import solve_knapsack_ga
+        from GNNForKnapSack.solvers.GA.ga_baseline_eval import solve_knapsack_ga
         W = np.array(SIMPLE_W, dtype=np.int32)
         V = np.array(SIMPLE_V, dtype=np.int32)
         selected = solve_knapsack_ga(W, V, SIMPLE_C, population_size=30,
@@ -130,7 +130,7 @@ class TestGA:
         assert weight <= SIMPLE_C
 
     def test_finds_optimal_simple(self):
-        from ga_baseline_eval import solve_knapsack_ga
+        from GNNForKnapSack.solvers.GA.ga_baseline_eval import solve_knapsack_ga
         W = np.array(SIMPLE_W, dtype=np.int32)
         V = np.array(SIMPLE_V, dtype=np.int32)
         selected = solve_knapsack_ga(W, V, SIMPLE_C, population_size=50,
@@ -139,7 +139,7 @@ class TestGA:
         assert value == SIMPLE_OPT, f"Expected {SIMPLE_OPT}, got {value}"
 
     def test_reproducible(self):
-        from ga_baseline_eval import solve_knapsack_ga
+        from GNNForKnapSack.solvers.GA.ga_baseline_eval import solve_knapsack_ga
         W = np.array(SIMPLE_W, dtype=np.int32)
         V = np.array(SIMPLE_V, dtype=np.int32)
         s1 = solve_knapsack_ga(W, V, SIMPLE_C, seed=42)
@@ -229,7 +229,7 @@ class TestInstanceLoader:
 
 class TestGraphBuilder:
     def test_output_shape(self):
-        from Graph_builder import build_knapsack_graph
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Graph_builder import build_knapsack_graph
         data = build_knapsack_graph(
             weights=[10, 20, 30],
             values=[60, 100, 120],
@@ -243,7 +243,7 @@ class TestGraphBuilder:
         assert data.cap.item() == 50
 
     def test_inference_graph(self):
-        from Graph_builder import build_knapsack_graph_inference
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Graph_builder import build_knapsack_graph_inference
         data = build_knapsack_graph_inference(
             weights=[10, 20, 30],
             values=[60, 100, 120],
@@ -254,7 +254,7 @@ class TestGraphBuilder:
         assert data.y.sum().item() == 0
 
     def test_feature_values(self):
-        from Graph_builder import build_knapsack_graph
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Graph_builder import build_knapsack_graph
         data = build_knapsack_graph(
             weights=[10, 20, 30],
             values=[60, 100, 120],
@@ -272,7 +272,7 @@ class TestGraphBuilder:
 
 class TestDQNEnv:
     def test_feasibility_enforced(self):
-        from dqn_env import KnapsackEnv
+        from GNNForKnapSack.Reinforcement_Learning.DQN.dqn_env import KnapsackEnv
         env = KnapsackEnv(
             weights=np.array([100, 200, 300]),
             values=np.array([50, 100, 150]),
@@ -285,7 +285,7 @@ class TestDQNEnv:
         assert env.compute_solution_weight() <= 100 + 1e-6
 
     def test_state_dim(self):
-        from dqn_env import KnapsackEnv
+        from GNNForKnapSack.Reinforcement_Learning.DQN.dqn_env import KnapsackEnv
         env = KnapsackEnv(
             weights=np.array([10, 20, 30]),
             values=np.array([60, 100, 120]),
@@ -296,7 +296,7 @@ class TestDQNEnv:
         assert s.shape[0] == 14  # 3 + 2 + 9
 
     def test_episode_completes(self):
-        from dqn_env import KnapsackEnv
+        from GNNForKnapSack.Reinforcement_Learning.DQN.dqn_env import KnapsackEnv
         env = KnapsackEnv(
             weights=np.array([10, 20, 30]),
             values=np.array([60, 100, 120]),
@@ -321,9 +321,9 @@ class TestCrossSolver:
 
     def test_all_solvers_feasible(self):
         """Every solver must produce feasible solutions."""
-        from Dp import solve_knapsack_dp
-        from greedy_baseline_eval import solve_knapsack_greedy
-        from ga_baseline_eval import solve_knapsack_ga
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
+        from GNNForKnapSack.solvers.Greedy.greedy_baseline_eval import solve_knapsack_greedy
+        from GNNForKnapSack.solvers.GA.ga_baseline_eval import solve_knapsack_ga
 
         W = np.array([10, 20, 30, 40, 50], dtype=np.int32)
         V = np.array([60, 100, 120, 140, 160], dtype=np.int32)
@@ -346,9 +346,9 @@ class TestCrossSolver:
 
     def test_no_solver_beats_dp(self):
         """DP is exact — no solver should exceed its value."""
-        from Dp import solve_knapsack_dp
-        from greedy_baseline_eval import solve_knapsack_greedy
-        from ga_baseline_eval import solve_knapsack_ga
+        from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Dp import solve_knapsack_dp
+        from GNNForKnapSack.solvers.Greedy.greedy_baseline_eval import solve_knapsack_greedy
+        from GNNForKnapSack.solvers.GA.ga_baseline_eval import solve_knapsack_ga
 
         W = np.array(SIMPLE_W, dtype=np.int32)
         V = np.array(SIMPLE_V, dtype=np.int32)

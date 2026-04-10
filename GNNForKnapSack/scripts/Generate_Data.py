@@ -1,5 +1,4 @@
-"""Generate Knapsack dataset using PuLP ILP solver.
-"""
+"""Generate Knapsack dataset using PuLP ILP solver."""
 
 from __future__ import annotations
 import argparse

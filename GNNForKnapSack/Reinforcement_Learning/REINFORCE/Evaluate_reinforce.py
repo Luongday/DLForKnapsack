@@ -18,11 +18,10 @@ for _p in [str(_HERE), str(_HERE.parent)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from instance_loader import load_instance, list_instances
-from model import load_checkpoint
-from Graph_builder import build_knapsack_graph_inference
-from decode_utils import greedy_feasible_decode
-
+from GNNForKnapSack.instance_loader import load_instance, list_instances
+from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.Graph_builder import build_knapsack_graph_inference
+from GNNForKnapSack.decode_utils import greedy_feasible_decode
+from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.model import load_checkpoint
 
 def mark(msg: str) -> None:
     print(f"[REINFORCE-EVAL] {msg}", flush=True)
@@ -88,7 +87,7 @@ def parse_args():
     )
     parser.add_argument("--dataset_dir", type=Path, required=True)
     parser.add_argument("--model_path",  type=Path,
-                        default=Path("results/GNN_REINFORCE/gnn_reinforce.pt"))
+                        default=Path(__file__).resolve().parents[1]/ "results" / "GNN_REINFORCE" / "gnn_reinforce.pt")
     parser.add_argument("--out_csv",     type=Path,
                         default=Path("results/GNN_REINFORCE/reinforce_eval_results.csv"))
     parser.add_argument("--device",      type=str, default="cpu")

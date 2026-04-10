@@ -1,7 +1,7 @@
 """Replay Buffer cho DQN - Lưu trữ các transition (trải nghiệm) để train."""
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, List
 import numpy as np
 import random
 
@@ -20,7 +20,7 @@ class ReplayBuffer:
     def __init__(self, capacity: int = 200_000, seed: int = 42):
         self.capacity = int(capacity)
         self.rng = random.Random(seed)
-        self.data = list[Transition] = []
+        self.data: List[Transition] = []
         self.pos = 0
 
     def __len__(self):

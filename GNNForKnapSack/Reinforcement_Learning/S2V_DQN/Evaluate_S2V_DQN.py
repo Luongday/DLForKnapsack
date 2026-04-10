@@ -1,9 +1,4 @@
-"""S2V-DQN evaluation — CSV schema aligned with all other solvers.
-
-Usage:
-    python Evaluate_S2V_DQN.py --dataset_dir data/knapsack_ilp/test \
-        --model_path results/S2V_DQN/s2v_dqn.pt
-"""
+"""S2V-DQN evaluation — CSV schema aligned with all other solvers."""
 
 from __future__ import annotations
 
@@ -79,9 +74,9 @@ def parse_args():
     )
     parser.add_argument("--dataset_dir", type=Path, required=True)
     parser.add_argument("--model_path",  type=Path,
-                        default=Path("results/S2V_DQN/s2v_dqn.pt"))
+                        default=Path(__file__).resolve().parents[1] / "results" / "S2V_DQN" / "s2v_dqn_best.pt")
     parser.add_argument("--out_csv",     type=Path,
-                        default=Path("results/S2V_DQN/s2v_dqn_eval_results.csv"))
+                        default=Path(__file__).resolve().parents[1] / "results" / "S2V_DQN" / "s2v_dqn_eval_results.csv")
     parser.add_argument("--device",      type=str, default="cpu")
     parser.add_argument("--k",           type=int, default=16)
     parser.add_argument("--n",           type=int, default=None)

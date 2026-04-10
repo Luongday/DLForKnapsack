@@ -1,24 +1,4 @@
-"""Merge DP, GNN, Greedy, GA, and DQN per-instance results into comparison table.
-
-Reads CSV from each solver, joins on instance_file, computes comparison metrics:
-    - merged_results.csv        : per-instance side-by-side table
-    - summary.json              : aggregate statistics per solver
-    - infeasibility_report.json : infeasibility analysis
-
-NEW vs original:
-    - Greedy and GA solvers fully integrated
-    - Cleaner solver registration (add new solvers in one place)
-    - DQN/RL slot ready (uncomment when available)
-
-Usage:
-    python Merge_results.py
-    python Merge_results.py --dp_csv results/DP/dp_results.csv \\
-                            --gnn_csv results/GNN/gnn_eval_results.csv \\
-                            --greedy_csv results/Greedy/greedy_eval_results.csv \\
-                            --ga_csv results/GA/ga_eval_results.csv
-    # When DQN is ready:
-    # python Merge_results.py --dqn_csv results/DQN/dqn_eval_results.csv
-"""
+"""Merge DP, GNN, Greedy, GA, and DQN per-instance results into comparison table."""
 
 from __future__ import annotations
 
@@ -252,10 +232,11 @@ def merge(
     gnn_rows:        Optional[Dict] = None,
     greedy_rows:     Optional[Dict] = None,
     ga_rows:         Optional[Dict] = None,
+    bb_rows:         Optional[Dict] = None,
     dqn_rows:        Optional[Dict] = None,
     s2v_rows:        Optional[Dict] = None,
     reinforce_rows:  Optional[Dict] = None,
-    out_dir:         Path = Path("results/compare"),
+    out_dir:         Path = Path("compare"),
     verbose:         bool = False,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -266,6 +247,7 @@ def merge(
         "gnn":        gnn_rows,
         "greedy":     greedy_rows,
         "ga":         ga_rows,
+        "bb":         bb_rows,
         "dqn":        dqn_rows,
         "s2v":        s2v_rows,
         "reinforce":  reinforce_rows,
@@ -320,7 +302,7 @@ def merge(
         }
 
         # Process each non-DP solver
-        for solver_name in ["gnn", "greedy", "ga", "dqn", "s2v", "reinforce"]:
+        for solver_name in ["gnn", "greedy", "ga", "bb", "dqn", "s2v", "reinforce"]:
             solver_rows = solver_data.get(solver_name)
             if solver_rows is None:
                 # Add None columns for missing solvers
@@ -449,6 +431,8 @@ def parse_args() -> argparse.Namespace:
                         default=root / "results" / "Greedy" / "greedy_eval_results.csv")
     parser.add_argument("--ga_csv",      type=Path,
                         default=root / "results" / "GA" / "ga_eval_results.csv")
+    parser.add_argument("--bb_csv",      type=Path, default=None,
+                        help="[Optional] Branch-and-Bound eval CSV.")
     parser.add_argument("--dqn_csv",     type=Path, default=None,
                         help="[Optional] DQN eval CSV. Leave empty if not ready.")
     parser.add_argument("--s2v_csv",     type=Path, default=None,
@@ -456,7 +440,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reinforce_csv", type=Path, default=None,
                         help="[Optional] REINFORCE eval CSV. Leave empty if not ready.")
     parser.add_argument("--out_dir",     type=Path,
-                        default=root / "results" / "compare")
+                        default=Path(__file__).resolve().parents[2] / "results" / "compare")
     parser.add_argument("--skip_missing", action="store_true",
                         help="Continue even if some CSVs are missing")
     parser.add_argument("--verbose",     action="store_true")
@@ -473,6 +457,7 @@ if __name__ == "__main__":
     gnn_rows        = load_csv(args.gnn_csv,    "GNN")
     greedy_rows     = load_csv(args.greedy_csv, "Greedy")
     ga_rows         = load_csv(args.ga_csv,     "GA")
+    bb_rows         = load_csv(args.bb_csv, "BB") if args.bb_csv else None
     dqn_rows        = load_csv(args.dqn_csv, "DQN") if args.dqn_csv else None
     s2v_rows        = load_csv(args.s2v_csv, "S2V-DQN") if args.s2v_csv else None
     reinforce_rows  = load_csv(args.reinforce_csv, "REINFORCE") if args.reinforce_csv else None
@@ -485,6 +470,7 @@ if __name__ == "__main__":
         gnn_rows=gnn_rows,
         greedy_rows=greedy_rows,
         ga_rows=ga_rows,
+        bb_rows=bb_rows,
         dqn_rows=dqn_rows,
         s2v_rows=s2v_rows,
         reinforce_rows=reinforce_rows,

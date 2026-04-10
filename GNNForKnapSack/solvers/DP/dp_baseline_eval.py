@@ -1,15 +1,4 @@
-"""DP baseline evaluation for 0/1 Knapsack.
-
-CSV schema aligned with GNN/Greedy/GA for merge_results.py.
-
-Improvements vs original:
-    - Uses centralized instance_loader (no duplicate key alias logic)
-    - numpy bool array for choice (fast, no OOM)
-    - MAX_CAPACITY guard with --max_capacity override
-
-Usage:
-    python dp_baseline_eval.py --dataset_dir data/knapsack_ilp/test
-"""
+"""DP baseline evaluation for 0/1 Knapsack."""
 
 from __future__ import annotations
 
@@ -130,7 +119,7 @@ def evaluate(
             "selected_items":    json.dumps(selected_idx),
         })
 
-        if verbose and ((idx + 1) % 100 == 0 or idx == 0):
+        if verbose and ((idx + 1) % 50 == 0 or idx == 0):
             elapsed = time.perf_counter() - total_start
             mark(f"[{idx+1}/{len(files)}] elapsed={elapsed:.1f}s val={total_value} time={t_ms:.2f}ms")
 
@@ -148,7 +137,6 @@ def evaluate(
         mark(f"Avg value={avg_val:.2f} | time={avg_time:.3f}ms | feasible={feas:.3f}")
     mark(f"Results → {out_csv}")
 
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="DP baseline evaluation.",
@@ -160,7 +148,6 @@ def parse_args():
     parser.add_argument("--max_capacity", type=int,  default=DEFAULT_MAX_CAPACITY)
     parser.add_argument("--quiet",        action="store_true")
     return parser.parse_args()
-
 
 if __name__ == "__main__":
     args = parse_args()

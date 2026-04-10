@@ -1,11 +1,4 @@
-"""Shared training logger for DQN and S2V-DQN.
-
-Writes per-checkpoint metrics to CSV so plot_results.py can visualize them.
-
-CSV schema:
-    step, updates, epsilon, loss, avg_value_val, best_value_val,
-    buffer_size, elapsed_sec
-"""
+"""Shared training logger for DQN and S2V-DQN."""
 
 from __future__ import annotations
 
@@ -15,11 +8,7 @@ from typing import List, Optional
 
 
 class RLTrainingLogger:
-    """Append-only CSV logger for RL training progress.
-
-    Writes header on first log() call, then appends rows.
-    Safe to call from anywhere — creates parent directories.
-    """
+    """Append-only CSV logger for RL training progress."""
 
     HEADER = [
         "step", "updates", "epsilon", "loss",

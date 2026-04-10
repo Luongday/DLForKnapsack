@@ -14,6 +14,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from torch_geometric.utils import scatter as pyg_scatter
+
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
@@ -21,7 +23,7 @@ from GNNForKnapSack.instance_loader import load_instance, list_instances
 from s2v_env import GraphKnapsackEnv
 from s2v_model import S2VQNetwork, save_s2v_checkpoint
 from s2v_replay import GraphReplayBuffer, GraphTransition
-from rl_training_logger import RLTrainingLogger
+from GNNForKnapSack.rl_training_logger import RLTrainingLogger
 
 
 # ---------------------------------------------------------------------------
@@ -34,15 +36,16 @@ DEFAULTS = {
     "batch_size":          64,
     "buffer_size":         50_000,
     "min_buffer_size":     1_000,
-    "target_update_steps": 1_000,
+    "target_update_steps": 1_000,   # tính theo số UPDATES (không phải env steps)
     "eps_start":           1.0,
     "eps_end":             0.05,
     "eps_decay_steps":     30_000,
     "grad_clip":           5.0,
+    "train_freq":          4,       # [FIX 2] update mỗi 4 env steps
 }
 
-LOG_EVERY = 1_000   # log every 1k steps
-VAL_EVERY = 5_000   # validate every 5k steps
+LOG_EVERY = 1_000
+VAL_EVERY = 5_000
 
 
 def mark(msg: str):
@@ -137,16 +140,15 @@ def parse_args():
         description="Train S2V-DQN (GNN-based DQN) on 0/1 Knapsack.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--dataset_dir", type=Path, required=True,
-                        help="Training data directory")
+    parser.add_argument("--dataset_dir", type=Path, required=True)
     parser.add_argument("--val_dir",     type=Path, default=None)
     parser.add_argument("--test_dir",    type=Path, default=None)
-    parser.add_argument("--out_dir",     type=Path, default=Path("results/S2V_DQN"))
+    parser.add_argument("--out_dir",     type=Path,
+                        default=Path(__file__).resolve().parents[2] / "results" / "S2V_DQN")
     parser.add_argument("--device",      type=str,  default="cpu")
     parser.add_argument("--hidden_dim",  type=int,  default=128)
     parser.add_argument("--num_layers",  type=int,  default=3)
-    parser.add_argument("--k",           type=int,  default=16,
-                        help="kNN graph neighborhood size")
+    parser.add_argument("--k",           type=int,  default=16)
     parser.add_argument("--train_steps", type=int,  default=50_000)
     parser.add_argument("--lr",          type=float, default=DEFAULTS["lr"])
     parser.add_argument("--batch_size",  type=int,  default=DEFAULTS["batch_size"])
@@ -196,6 +198,8 @@ def main():
     n_params = sum(p.numel() for p in online.parameters())
     mark(f"S2VQNetwork: hidden={args.hidden_dim} layers={args.num_layers} "
          f"params={n_params:,}")
+    mark(f"train_freq={DEFAULTS['train_freq']}, "
+         f"target_update_steps={DEFAULTS['target_update_steps']} (counted by updates)")
 
     # Training logger
     logger = RLTrainingLogger(args.out_dir / "training_log.csv")
@@ -245,8 +249,13 @@ def main():
             done = out.done
             step_count += 1
 
-            # Optimize
-            if len(buffer) >= DEFAULTS["min_buffer_size"]:
+            # ================== OPTIMIZE ==================
+            do_update = (
+                len(buffer) >= DEFAULTS["min_buffer_size"]
+                and step_count % DEFAULTS["train_freq"] == 0
+            )
+
+            if do_update:
                 s_b, a_b, r_b, s2_b, d_b, mask_list = buffer.sample(args.batch_size)
 
                 s_b  = s_b.to(device)
@@ -255,27 +264,37 @@ def main():
                 r_b  = r_b.to(device)
                 d_b  = d_b.to(device)
 
+
                 q_all = online(s_b)
                 ptr = s_b.ptr
                 global_a = ptr[:-1] + a_b
                 q_sa = q_all[global_a]
 
                 with torch.no_grad():
-                    q2_all = target(s2_b)
-                    ptr2 = s2_b.ptr
-                    max_q2 = torch.zeros(args.batch_size, device=device)
-                    for i in range(args.batch_size):
-                        start = int(ptr2[i].item())
-                        end   = int(ptr2[i+1].item())
-                        q_graph = q2_all[start:end]
-                        m = torch.from_numpy(mask_list[i]).float().to(device)
-                        if m.sum() > 0:
-                            q_masked = q_graph + (m - 1.0) * 1e9
-                            max_q2[i] = q_masked.max()
-                        else:
-                            max_q2[i] = 0.0
+                    q2_all = target(s2_b)  # [N_total]
+
+
+                    mask_full_np = np.concatenate(mask_list).astype(np.float32)
+                    mask_full = torch.from_numpy(mask_full_np).to(device)
+
+                    # Invalid actions → -inf để loại khỏi max
+                    q2_masked = q2_all.masked_fill(mask_full < 0.5, float("-inf"))
+
+                    # Max per graph dùng scatter theo batch index
+                    max_q2 = pyg_scatter(
+                        q2_masked, s2_b.batch,
+                        dim=0, dim_size=args.batch_size,
+                        reduce="max",
+                    )  # [batch_size]
+
+                    max_q2 = torch.where(
+                        torch.isfinite(max_q2),
+                        max_q2,
+                        torch.zeros_like(max_q2),
+                    )
 
                     y = r_b + (1.0 - d_b) * DEFAULTS["gamma"] * max_q2
+
 
                 loss = F.smooth_l1_loss(q_sa, y)
                 last_loss = float(loss.item())
@@ -286,26 +305,27 @@ def main():
                 optimizer.step()
                 updates += 1
 
-                if step_count % DEFAULTS["target_update_steps"] == 0:
+
+                if updates % DEFAULTS["target_update_steps"] == 0:
                     target.load_state_dict(online.state_dict())
 
-            # Validation
+            # ================== VALIDATION ==================
             if step_count % VAL_EVERY == 0 and val_set:
                 val_metrics = evaluate_on_set(online, val_set, device, k=args.k, limit=50)
                 latest_val_value = val_metrics["avg_value"]
-                mark(f"  [val] step={step_count} avg_value={latest_val_value:.2f} "
+                mark(f"  [val] Step={step_count} | avg_value={latest_val_value:.2f} "
                      f"feas={val_metrics['feasibility']:.3f}")
                 if latest_val_value > best_val:
                     best_val = latest_val_value
                     save_s2v_checkpoint(online, args.out_dir / "s2v_dqn_best.pt")
                     mark(f"  [val] new best → s2v_dqn_best.pt")
 
-            # Periodic logging to CSV
+            # ================== LOG ==================
             if step_count % LOG_EVERY == 0 or step_count == 1:
                 elapsed = time.perf_counter() - start_time
-                loss_str = f"{last_loss:.4f}" if last_loss else "N/A"
-                mark(f"step={step_count:>6} eps={eps:.3f} buf={len(buffer):>5} "
-                     f"loss={loss_str} elapsed={elapsed:.1f}s")
+                loss_str = f"{last_loss:.4f}" if last_loss is not None else "N/A"
+                mark(f"Step={step_count:>6} | eps={eps:.3f} | buffer={len(buffer):>5} "
+                     f"loss={loss_str} | updates={updates:>5} | elapsed={elapsed/60:.1f} m")
 
                 logger.log(
                     step=step_count,
@@ -332,6 +352,7 @@ def main():
         "n_test":          len(test_set),
         "hidden_dim":      args.hidden_dim,
         "num_layers":      args.num_layers,
+        "train_freq":      DEFAULTS["train_freq"],
         "best_val_value":  best_val if best_val > -float("inf") else None,
         "params":          n_params,
     }
@@ -339,7 +360,8 @@ def main():
         json.dump(meta, f, indent=2)
 
     mark(f"Training complete: {train_time:.1f}s, {updates} updates")
-    mark(f"Best val avg_value: {best_val:.2f}" if best_val > -float("inf") else "No validation performed")
+    if best_val > -float("inf"):
+        mark(f"Best val avg_value: {best_val:.2f}")
     mark(f"Model → {args.out_dir / 's2v_dqn.pt'}")
     mark(f"Log   → {args.out_dir / 'training_log.csv'}")
 

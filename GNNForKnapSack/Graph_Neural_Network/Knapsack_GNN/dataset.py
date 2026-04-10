@@ -1,23 +1,4 @@
-"""PyG dataset classes for 0/1 Knapsack GNN training.
-
-Two dataset classes:
-    KnapsackDataset            — loads from Excel (small problems, demo)
-    GeneratedKnapsack01Dataset — loads from NPZ files (main training)
-
-Both produce PyG Data with node feature schema (6-dim):
-    x          [n, 6]  (w_norm, v_norm, ratio_norm, cap_ratio, cap_util, item_frac)
-    edge_index [2, E]  kNN sparse graph
-    y          [n, 1]  binary 0/1 DP-optimal selection
-    wts        [n]     raw weights (float32)
-    vals       [n]     raw values  (float32)
-    cap        [1]     raw capacity (float32)
-
-Improvements vs original:
-    - Feature dimension 4 → 6 (matches improved Graph_builder)
-    - build_sparse_graph delegates to Graph_builder (single source of truth)
-    - split_dataset_by_instances guarantees non-empty val/test
-    - _LazyKnapsackDataset for large datasets that don't fit in RAM
-"""
+"""PyG dataset classes for 0/1 Knapsack GNN training."""
 
 from __future__ import annotations
 

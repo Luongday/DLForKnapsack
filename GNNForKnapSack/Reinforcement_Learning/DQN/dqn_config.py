@@ -16,7 +16,7 @@ class DQNConfig:
     # epsilon-greedy
     eps_start: float = 1.0
     eps_end: float = 0.05
-    eps_decay_steps: int = 100_000
+    eps_decay_steps: int = 30_000
 
     # Optimization stability
     grad_clip_norm: float = 5.0

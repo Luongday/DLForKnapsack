@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import sys
 import time
 from pathlib import Path
-from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -65,6 +63,10 @@ def load_instances_for_training(dataset_dir: Path):
     instances = []
     for path in files:
         W, V, C = load_instance(path)
+        W = np.asarray(W, dtype=np.float32)
+        V = np.asarray(V, dtype=np.float32)
+        order = np.argsort(-(V / (W + 1e-8)))
+        W, V = W[order], V[order]
         instances.append({
             "weights": W,
             "values": V,
@@ -137,7 +139,7 @@ def parse_args():
                         help="Separate validation directory")
     parser.add_argument("--test_dir", type=Path, default=None,
                         help="Separate test directory")
-    parser.add_argument("--out_dir", type=Path, default=Path("results/DQN"))
+    parser.add_argument("--out_dir", type=Path, default=Path(__file__).resolve().parents[2] / "results" / "DQN")
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--train_steps", type=int, default=50_000)
@@ -153,6 +155,7 @@ def main():
     cfg.train_steps = args.train_steps
     cfg.lr = args.lr
     cfg.seed = args.seed
+    cfg.eps_decay_steps = int(cfg.train_steps * 0.6)
 
     set_seed(cfg.seed)
     rng = np.random.default_rng(cfg.seed)
@@ -306,7 +309,7 @@ def main():
                 loss_str = f"{last_loss:.4f}" if last_loss is not None else "N/A"
                 mark(f"Step={step:6d} | Eps={eps:.3f} "
                      f"Buffer={len(replay_buffer):6d} | Loss={loss_str} "
-                     f"Updates {updates:5d} | Elapsed={elapsed/60:.1f} min")
+                     f"Updates {updates:5d} | Elapsed={elapsed/60:.1f} m")
 
                 logger.log(
                     step=step,

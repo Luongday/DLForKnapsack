@@ -450,7 +450,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_dp_capacity", type=int, default=500_000,
                         help="Skip DP solve if capacity exceeds this")
     parser.add_argument("--out_dir", type=Path,
-                        default=_HERE / "data" / "pisinger",
+                        default=_HERE / "data_hard" / "pisinger",
                         help="Output base directory")
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -496,7 +496,6 @@ def main() -> None:
             max_dp_capacity=args.max_dp_capacity,
             verbose=verbose,
         )
-
 
 if __name__ == "__main__":
     main()

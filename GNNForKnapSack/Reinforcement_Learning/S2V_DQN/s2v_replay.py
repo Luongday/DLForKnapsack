@@ -1,8 +1,4 @@
-"""Replay buffer for S2V-DQN.
-
-Stores graph transitions (PyG Data objects) instead of flat vectors.
-Uses PyG Batch.from_data_list to batch graphs efficiently.
-"""
+"""Replay buffer for S2V-DQN."""
 
 from __future__ import annotations
 

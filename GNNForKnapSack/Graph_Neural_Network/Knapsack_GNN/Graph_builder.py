@@ -1,24 +1,29 @@
-"""Knapsack graph builder — improved sparse kNN edition.
-
-Improvements vs original:
-    - Feature vector expanded from 4 to 6 dimensions:
-      + Added global capacity utilization: capacity / sum(weights)
-      + Added normalized item fraction: 1/n_items
-      These give the GNN awareness of the global problem structure,
-      not just per-item statistics.
-    - cap_ratio feature fixed: now w_i / capacity (consistent with docstring)
-    - Documentation aligned with actual implementation
-    - build_knapsack_graph_inference() added for eval (no solution needed)
-"""
+"""Knapsack graph builder — v2 with adaptive k and improved features."""
 
 from __future__ import annotations
 
-from typing import List, Optional
+import math
+from typing import List
 
 import torch
 from torch_geometric.data import Data
 
-DEFAULT_K = 16
+DEFAULT_K = 16  # Kept for backward compat but adaptive_k is preferred
+IN_DIM    = 7   # Increased from 6
+
+
+def adaptive_k(n: int, base_k: int = 16) -> int:
+    """Adaptive kNN size: grows with sqrt(n).
+
+    n=10  → min(9, max(9, 8))  = 9   (fully connected since n-1=9)
+    n=50  → max(9, 11)         = 11
+    n=100 → max(9, 16)         = 16
+    n=200 → max(9, 22)         = 22
+    n=500 → max(9, 35)         = 35
+    n=1000→ max(9, 50)         = 50
+    """
+    k_adaptive = max(base_k // 2, int(math.sqrt(n) * 1.6))
+    return min(k_adaptive, max(1, n - 1))
 
 
 def _build_knn_edges(x: torch.Tensor, k: int) -> torch.Tensor:
@@ -46,50 +51,51 @@ def build_knapsack_graph(
 ) -> Data:
     """Build PyG graph for a Knapsack instance with DP-optimal labels.
 
-    Node features (6-dim):
+    Node features (7-dim, normalized):
         0: w_norm     — weight_i / max(weights)
         1: v_norm     — value_i / max(values)
         2: ratio_norm — (v_i/w_i) / max(v/w)
-        3: cap_ratio  — weight_i / capacity  (how much of capacity this item uses)
-        4: cap_util   — capacity / sum(weights) (global: how tight is the knapsack)
-        5: item_frac  — 1 / n_items (global: inverse problem size)
-
-    Features 4-5 are global (same for all nodes in one graph) — they give the
-    GNN context about the overall problem structure.
+        3: cap_ratio  — weight_i / capacity
+        4: cap_util   — capacity / sum(weights) (global)
+        5: item_frac  — 1 / n_items (global)
+        6: w_vs_mean  — weight_i / mean(weights)  — NEW: outlier signal
 
     Args:
-        weights:  Item weights (list of int).
-        values:   Item values (list of int).
-        capacity: Knapsack capacity.
-        solution: Binary 0/1 DP-optimal selection.
-        k:        kNN neighbourhood size.
-
-    Returns:
-        PyG Data with x=[n,6], edge_index, y=[n,1], wts, vals, cap.
+        k: If set, use fixed k. Otherwise adaptive based on n.
     """
     w   = torch.tensor(weights,  dtype=torch.float32)
     v   = torch.tensor(values,   dtype=torch.float32)
     sol = torch.tensor(solution, dtype=torch.float32)
     n   = len(weights)
 
-    # Per-item features (normalized)
-    ratio = v / (w + 1e-8)
-
+    # Per-item normalized features
+    ratio      = v / (w + 1e-8)
     w_norm     = w     / (w.max()     + 1e-8)
     v_norm     = v     / (v.max()     + 1e-8)
     ratio_norm = ratio / (ratio.max() + 1e-8)
 
-    # Per-item: fraction of capacity this item occupies
     cap_ratio = w / (float(capacity) + 1e-8)
 
-    # Global features (broadcast to all nodes)
-    cap_util  = torch.full((n,), float(capacity) / (w.sum().item() + 1e-8))
+    # Global features
+    w_sum     = w.sum().item() + 1e-8
+    w_mean    = w_sum / max(n, 1)
+    cap_util  = torch.full((n,), float(capacity) / w_sum)
     item_frac = torch.full((n,), 1.0 / max(n, 1))
 
-    # 6-dim feature vector
-    x = torch.stack([w_norm, v_norm, ratio_norm, cap_ratio, cap_util, item_frac], dim=1)
+    # NEW: weight relative to mean — helps identify outliers
+    w_vs_mean = w / w_mean
 
-    edge_index = _build_knn_edges(x, k=k)
+    # 7-dim feature vector
+    x = torch.stack([
+        w_norm, v_norm, ratio_norm,
+        cap_ratio, cap_util, item_frac,
+        w_vs_mean,
+    ], dim=1)
+
+    # Adaptive k based on graph size
+    k_used = adaptive_k(n, base_k=k)
+    edge_index = _build_knn_edges(x, k=k_used)
+
     y = sol.unsqueeze(1)  # [n, 1]
 
     return Data(

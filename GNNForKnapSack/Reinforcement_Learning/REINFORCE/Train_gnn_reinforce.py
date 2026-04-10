@@ -11,7 +11,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 
 _HERE     = Path(__file__).resolve().parent
@@ -20,9 +19,8 @@ for _p in [str(_GNN_ROOT), str(_HERE)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from dataset import GeneratedKnapsack01Dataset
-from decode_utils import greedy_feasible_decode, greedy_ratio_decode
-from model import KnapsackGNN, save_checkpoint, load_checkpoint
+from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.dataset import GeneratedKnapsack01Dataset
+from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.model import KnapsackGNN, save_checkpoint, load_checkpoint
 
 
 # ---------------------------------------------------------------------------
@@ -36,17 +34,7 @@ def sample_and_repair(
     capacity: float,
     greedy:   bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, float]:
-    """Sample an action (binary selection), then repair to feasibility.
-
-    Args:
-        logits:   GNN output per node.
-        greedy:   If True, use deterministic argmax (>0.5). Else sample Bernoulli.
-
-    Returns:
-        action:     [n] binary tensor (FINAL feasible solution after repair)
-        log_prob:   scalar log-probability of the SAMPLED (pre-repair) action
-        value:      total value of the feasible solution
-    """
+    """Sample an action (binary selection), then repair to feasibility."""
     probs = torch.sigmoid(logits)
 
     if greedy:
@@ -55,16 +43,9 @@ def sample_and_repair(
         dist = torch.distributions.Bernoulli(probs=probs)
         sampled = dist.sample()
 
-    # log probability of the sampled action (sum over nodes)
-    # log p(x) = sum_i [x_i * log(p_i) + (1-x_i) * log(1-p_i)]
-    eps = 1e-8
-    log_p_per_node = (
-        sampled * torch.log(probs + eps)
-        + (1 - sampled) * torch.log(1 - probs + eps)
-    )
-    log_prob = log_p_per_node.sum()
-
     # Repair to feasibility: drop lowest value/weight ratio items until fit
+    # We compute log_prob AFTER repair so that (log_prob, reward) corresponds
+    # to the SAME action — this is required for REINFORCE to be correct.
     selected = sampled.detach().cpu().clone()
     w_cpu = weights.detach().cpu()
     v_cpu = values.detach().cpu()
@@ -81,9 +62,17 @@ def sample_and_repair(
                 selected[i] = 0
                 total_w -= float(w_cpu[i])
 
-    action = selected
-    value = float((action * v_cpu).sum())
-    return action, log_prob, value
+    action_final = selected.to(logits.device)
+
+    eps = 1e-8
+    log_p_per_node = (
+        action_final * torch.log(probs + eps)
+        + (1 - action_final) * torch.log(1 - probs + eps)
+    )
+    log_prob = log_p_per_node.sum()
+
+    value = float((selected * v_cpu).sum())
+    return selected, log_prob, value
 
 
 # ---------------------------------------------------------------------------
@@ -96,25 +85,11 @@ def reinforce_batch_loss(
     batch,
     device:    torch.device,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Compute REINFORCE loss for one batch.
-
-    For each graph in the batch:
-        1. Model forward → logits per node
-        2. Sample action via Bernoulli → log_prob
-        3. Compute reward (feasible value after repair)
-        4. Baseline forward (no grad, greedy) → baseline reward
-        5. Advantage = reward - baseline
-        6. Loss contribution = -advantage * log_prob
-
-    Returns:
-        loss (scalar tensor), stats dict
-    """
+    """Compute REINFORCE loss for one batch."""
     batch = batch.to(device)
 
-    # Forward: model produces logits per node across entire batch
     logits_all = model(batch)  # [total_nodes]
 
-    # Baseline forward (no gradient)
     with torch.no_grad():
         base_logits_all = baseline(batch)
 
@@ -227,12 +202,10 @@ def paired_t_test_update(
     device:    torch.device,
     alpha:     float = 0.05,
 ) -> bool:
-    """One-sided paired t-test: is model significantly better than baseline?
+    """One-sided paired t-test: is model significantly better than baseline?"""
+    was_training = model.training
+    model.eval()
 
-    Returns True if the baseline should be updated to the current model.
-    Following Kool et al. 2019: update baseline only when improvement is
-    statistically significant — prevents noisy baseline drift.
-    """
     model_vals = []
     base_vals  = []
 
@@ -253,6 +226,9 @@ def paired_t_test_update(
             _, _, b_val = sample_and_repair(b_logits[mask], w_g, v_g, cap_g, greedy=True)
             model_vals.append(m_val)
             base_vals.append(b_val)
+
+    if was_training:
+        model.train()
 
     mv = np.asarray(model_vals)
     bv = np.asarray(base_vals)
@@ -295,11 +271,11 @@ class TrainingLogger:
 # CLI and Main
 # ---------------------------------------------------------------------------
 
-def _default_data_dir() -> str:
-    return str(_GNN_ROOT / "data" / "knapsack_ilp" / "train")
+def _default_data_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "data" / "knapsack_ilp" / "train"
 
-def _default_save_path() -> str:
-    return str(_GNN_ROOT / "results" / "GNN_REINFORCE" / "gnn_reinforce.pt")
+def _default_save_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "results" / "GNN_REINFORCE" / "gnn_reinforce.pt"
 
 
 def parse_args() -> argparse.Namespace:
@@ -307,12 +283,13 @@ def parse_args() -> argparse.Namespace:
         description="Train KnapsackGNN with REINFORCE (policy gradient).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--generated_dir", type=str, default=_default_data_dir())
+    parser.add_argument("--dataset_dir", type=str, default=_default_data_dir())
     parser.add_argument("--val_dir",       type=str, default=None)
     parser.add_argument("--test_dir",      type=str, default=None)
     parser.add_argument("--k",             type=int, default=16)
     parser.add_argument("--train_ratio",   type=float, default=0.8)
     parser.add_argument("--val_ratio",     type=float, default=0.1)
+    parser.add_argument("--out_dir", type=Path, default=Path(__file__).resolve().parents[1] / "results" / "GNN_REINFORCE")
 
     parser.add_argument("--epochs",        type=int, default=50)
     parser.add_argument("--batch_size",    type=int, default=16)
@@ -338,32 +315,42 @@ def parse_args() -> argparse.Namespace:
 def load_datasets(args):
     """Load train/val/test datasets with same 3-mode logic as Run_train.py."""
     from torch.utils.data import Subset
-    from dataset import split_dataset_by_instances
+    from GNNForKnapSack.Graph_Neural_Network.Knapsack_GNN.dataset import split_dataset_by_instances
 
     if args.val_dir and args.test_dir:
-        train_ds = GeneratedKnapsack01Dataset(root_dir=args.generated_dir, k=args.k)
+        # 3 separate directories — each dataset is complete, no Subset needed
+        train_ds = GeneratedKnapsack01Dataset(root_dir=args.dataset_dir, k=args.k)
         val_ds   = GeneratedKnapsack01Dataset(root_dir=args.val_dir,       k=args.k)
         test_ds  = GeneratedKnapsack01Dataset(root_dir=args.test_dir,      k=args.k)
-        train = Subset(train_ds, list(range(len(train_ds))))
-        val   = Subset(val_ds,   list(range(len(val_ds))))
-        test  = Subset(test_ds,  list(range(len(test_ds))))
+
+        # Sanity check: warn if any directories are identical (data leakage risk)
+        paths = {
+            "train": Path(args.dataset_dir).resolve(),
+            "val":   Path(args.val_dir).resolve(),
+            "test":  Path(args.test_dir).resolve(),
+        }
+        if len(set(paths.values())) < 3:
+            print("WARNING: train/val/test directories are not all distinct!")
+            for name, p in paths.items():
+                print(f"  {name}: {p}")
+
         print(f"Dataset: 3 SEPARATE dirs")
-        print(f"  Train: {args.generated_dir} ({len(train)})")
-        print(f"  Val:   {args.val_dir} ({len(val)})")
-        print(f"  Test:  {args.test_dir} ({len(test)})")
-        return train_ds, train, val, test
+        print(f"  Train: {args.dataset_dir} ({len(train_ds)})")
+        print(f"  Val:   {args.val_dir} ({len(val_ds)})")
+        print(f"  Test:  {args.test_dir} ({len(test_ds)})")
+        return train_ds, train_ds, val_ds, test_ds
     elif args.test_dir:
-        tv_ds = GeneratedKnapsack01Dataset(root_dir=args.generated_dir, k=args.k)
+        tv_ds = GeneratedKnapsack01Dataset(root_dir=args.dataset_dir, k=args.k)
         te_ds = GeneratedKnapsack01Dataset(root_dir=args.test_dir,      k=args.k)
         n_tv = len(tv_ds)
         n_train = max(1, int(n_tv * 0.9))
         train = Subset(tv_ds, list(range(n_train)))
         val   = Subset(tv_ds, list(range(n_train, n_tv)))
         test  = Subset(te_ds, list(range(len(te_ds))))
-        print(f"Dataset: train+val from {args.generated_dir}, test from {args.test_dir}")
+        print(f"Dataset: train+val from {args.dataset_dir}, test from {args.test_dir}")
         return tv_ds, train, val, test
     else:
-        ds = GeneratedKnapsack01Dataset(root_dir=args.generated_dir, k=args.k)
+        ds = GeneratedKnapsack01Dataset(root_dir=args.dataset_dir, k=args.k)
         train, val, test = split_dataset_by_instances(
             ds, train_ratio=args.train_ratio, val_ratio=args.val_ratio,
         )
@@ -423,8 +410,9 @@ def main() -> None:
     print(f"Training: {args.epochs} epochs, batch={args.batch_size}, lr={args.lr}")
 
     # Logger
-    log_path = _GNN_ROOT / "logs" / "reinforce_training_log.csv"
-    logger = TrainingLogger(log_path)
+    logger = TrainingLogger(
+        Path(__file__).resolve().parents[1] / "results" / "GNN_REINFORCE" / "gnnrl_training_log.csv"
+    )
 
     # Training loop
     best_val_ratio = 0.0
@@ -432,7 +420,7 @@ def main() -> None:
     train_start = time.perf_counter()
 
     print(f"\n{'Epoch':>5} | {'Loss':>8} | {'AvgRwd':>8} {'AvgBase':>8} | "
-          f"{'ValVal':>8} {'Ratio':>7} {'Feas':>6} | {'BaseUpd':>8} | {'time':>6}")
+          f"{'Val':>8} {'Ratio':>7} {'Feas':>6} | {'BaseUpdate':>8} | {'time':>6}")
     print("-" * 95)
 
     for epoch in range(1, args.epochs + 1):
@@ -517,7 +505,7 @@ def main() -> None:
         print(f"  n instances:  {test_metrics['n']}")
 
     print(f"\nModel saved: {args.save_path}")
-    print(f"Log saved:   {log_path}")
+    print(f"Log saved:   {logger}")
 
 
 if __name__ == "__main__":

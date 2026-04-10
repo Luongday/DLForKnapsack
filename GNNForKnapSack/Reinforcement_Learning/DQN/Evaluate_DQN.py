@@ -1,14 +1,4 @@
-"""DQN evaluation — CSV schema aligned with DP/GNN/Greedy/GA pipeline.
-
-Evaluates trained DQN on per-instance NPZ files, outputs CSV compatible
-with Merge_results.py for full 5-solver comparison.
-
-Usage:
-    python Evaluate_DQN.py --dataset_dir data/knapsack_ilp/test --model_path results/DQN/dqn.pt
-
-    # Then merge all:
-    python Merge_results.py --dqn_csv results/DQN/dqn_eval_results.csv
-"""
+"""DQN evaluation — CSV schema aligned with DP/GNN/Greedy/GA pipeline."""
 
 from __future__ import annotations
 
@@ -50,7 +40,14 @@ def run_dqn_on_instance(
     capacity: int,
 ) -> dict:
     """Run DQN inference on one instance. Returns solution dict."""
-    env = KnapsackEnv(weights, values, capacity, eps=1e-8)
+    W = np.asarray(weights, dtype=np.float32)
+    V = np.asarray(values, dtype=np.float32)
+
+    # Sort theo ratio giảm dần, nhớ original index
+    order = np.argsort(-(V / (W + 1e-8)))
+    W_sorted = W[order]
+    V_sorted = V[order]
+    env = KnapsackEnv(W_sorted, V_sorted, capacity, eps=1e-8)
     s = env.reset()
     done = False
 
@@ -68,7 +65,9 @@ def run_dqn_on_instance(
     total_weight = env.compute_solution_weight()
     total_value  = env.compute_solution_value()
     feasible     = 1 if total_weight <= float(capacity) + 1e-6 else 0
-    selected_idx = [int(i) for i, v in enumerate(env.selection.tolist()) if v == 1]
+
+    selected_sorted = [i for i, v in enumerate(env.selection.tolist()) if v == 1]
+    selected_idx = sorted(int(order[i]) for i in selected_sorted)
 
     return {
         "total_weight":      float(total_weight),
@@ -84,10 +83,10 @@ def run_dqn_on_instance(
 # ---------------------------------------------------------------------------
 
 def _default_dataset_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "GNNForKnapSack" / "data" / "knapsack_ilp" / "test"
+    return Path(__file__).resolve().parents[2] / "data" / "knapsack_ilp" / "test"
 
 def _default_model_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "results" / "DQN" / "dqn.pt"
+    return Path(__file__).resolve().parents[1] / "results" / "DQN" / "dqn_best.pt"
 
 def _default_out_csv() -> Path:
     return Path(__file__).resolve().parents[1] / "results" / "DQN" / "dqn_eval_results.csv"

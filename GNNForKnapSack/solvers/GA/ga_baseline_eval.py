@@ -1,11 +1,4 @@
-"""GA baseline evaluation for 0/1 Knapsack.
-
-Same structure as dp_baseline_eval.py. Same CSV schema for Merge_results.py.
-
-Usage:
-    python ga_baseline_eval.py --dataset_dir data/knapsack_ilp/test
-    python ga_baseline_eval.py --dataset_dir data/knapsack_ilp/test --population 100 --generations 500
-"""
+"""GA baseline evaluation for 0/1 Knapsack."""
 
 from __future__ import annotations
 

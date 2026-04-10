@@ -1,32 +1,4 @@
-"""Cross-scale / cross-distribution evaluation for neural Knapsack solvers.
-
-Runs a single trained model on MULTIPLE test sets (different sizes, different
-distributions) and produces a summary table showing how performance changes.
-
-This directly tests the two novelty directions:
-    1. Scalability       — train small, test large
-    2. Generalization    — train uncorrelated, test strongly correlated
-
-Different from Merge_results.py:
-    Merge_results       : many solvers × 1 test set  (who wins on this data?)
-    cross_scale_eval    : 1 model × many test sets   (does the model generalize?)
-
-Usage:
-    python cross_scale_eval.py \\
-        --model_type gnn \\
-        --model_path results/GNN/gnn.pt \\
-        --test_sets data/knapsack_ilp/test data/pisinger/type_03/test \\
-        --labels "uncorr_n100" "pisinger_type3" \\
-        --include_baselines
-
-    # With all neural models
-    python cross_scale_eval.py \\
-        --model_type gnn --model_path results/GNN/gnn.pt \\
-        --extra_models dqn:results/DQN/dqn.pt s2v:results/S2V_DQN/s2v_dqn.pt \\
-        --test_sets data/test_n50 data/test_n100 data/test_n500 \\
-        --labels "n50" "n100" "n500" \\
-        --include_baselines
-"""
+"""Cross-scale / cross-distribution evaluation for neural Knapsack solvers."""
 
 from __future__ import annotations
 
@@ -167,9 +139,13 @@ def parse_args() -> argparse.Namespace:
                         help="Labels for each test set (same length as test_sets)")
 
     parser.add_argument("--include_baselines", action="store_true",
-                        help="Also run DP/Greedy/GA baselines on every test set")
+                        help="Also run DP/Greedy/GA/BB baselines on every test set")
     parser.add_argument("--skip_dp", action="store_true",
                         help="Skip DP (use when DP too slow for large n)")
+    parser.add_argument("--skip_bb", action="store_true",
+                        help="Skip Branch-and-Bound (slow on strongly correlated instances)")
+    parser.add_argument("--bb_timeout", type=float, default=60.0,
+                        help="B&B timeout per instance (seconds)")
 
     parser.add_argument("--out_dir", type=Path, default=Path("results/cross_scale"),
                         help="Output directory for per-set CSVs and summary")
@@ -215,6 +191,7 @@ def main():
         "dp":        ("dp_baseline_eval.py",      []),
         "greedy":    ("greedy_baseline_eval.py",  []),
         "ga":        ("ga_baseline_eval.py",      []),
+        "bb":        ("bb_baseline_eval.py",      []),
         "gnn":       ("Evaluate_GNN.py",          ["--model_path"]),
         "dqn":       ("Evaluate_DQN.py",          ["--model_path"]),
         "s2v":       ("Evaluate_S2V_DQN.py",      ["--model_path"]),
@@ -255,6 +232,14 @@ def main():
                 ga_rows = load_eval_csv(ga_csv)
                 all_results[label]["ga"] = compute_metrics_vs_dp(ga_rows, dp_rows)
 
+            # B&B (exact, can be slow on hard instances)
+            if not args.skip_bb:
+                bb_csv = set_out / "bb.csv"
+                bb_flags = n_flag + ["--timeout_sec", str(args.bb_timeout)]
+                if run_eval_script("bb_baseline_eval.py", test_dir, bb_csv, bb_flags):
+                    bb_rows = load_eval_csv(bb_csv)
+                    all_results[label]["bb"] = compute_metrics_vs_dp(bb_rows, dp_rows)
+
             # DP self-ratio = 1.0
             if dp_rows:
                 all_results[label]["dp"] = {
@@ -286,7 +271,7 @@ def main():
     all_solvers = set()
     for lbl_results in all_results.values():
         all_solvers.update(lbl_results.keys())
-    solver_order = [s for s in ["dp", "greedy", "ga", "gnn", "dqn", "s2v"] if s in all_solvers]
+    solver_order = [s for s in ["dp", "greedy", "ga", "bb", "gnn", "dqn", "s2v", "reinforce"] if s in all_solvers]
 
     # CSV: one row per (test_set, solver)
     with summary_csv.open("w", newline="", encoding="utf-8") as f:
